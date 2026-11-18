@@ -402,7 +402,7 @@ function vinForm(v) {
       <label class="field"><span>De qui l'avez-vous eu ?</span><input id="fProv" value="${esc(v.provenance ?? '')}" placeholder="Ex. Offert par Paul, acheté au domaine, salon des vins…" list="lProv" autocomplete="off"></label>
       ${inp('fDom', 'Domaine / château', v.domaine, 'autocomplete="off"')}
       ${inp('fNom', 'Cuvée', v.nom, 'autocomplete="off"')}
-      <div class="row2">${inp('fApp', 'Appellation', v.appellation, 'autocomplete="off"')}${inp('fMil', 'Millésime', v.millesime, `inputmode="numeric" placeholder="${ANNEE - 3}"`)}</div>
+      <div class="row2">${inp('fApp', 'Appellation', v.appellation, 'autocomplete="off"')}${inp('fMil', 'Millésime', v.millesime, `inputmode="numeric" placeholder="année"`)}</div>
       <div class="row2">${inp('fReg', 'Région', v.region, 'list="lReg" autocomplete="off"')}${inp('fPays', 'Pays', v.pays, 'autocomplete="off"')}</div>
       ${inp('fCep', 'Cépages', v.cepages, 'autocomplete="off"')}
       <div class="row3">
