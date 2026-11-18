@@ -40,7 +40,7 @@ const I_CAM = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="current
 /* ---------- état ---------- */
 let me = null, foyer = null, membres = [];
 let V = [], M = [];   // vins, mouvements
-let view = ['cave', 'hist', 'acc'].includes(lsg('cv-view', 'cave')) ? lsg('cv-view', 'cave') : 'cave', filtre = lsg('cv-filtre', 'tous'), tri = lsg('cv-tri', 'nom'), recherche = '', voirVides = false, openId = null;
+let view = 'cave', filtre = lsg('cv-filtre', 'tous'), tri = lsg('cv-tri', 'nom'), recherche = '', voirVides = false, openId = null;
 const CACHE = 'cv-cache';
 
 let toastT;
@@ -94,7 +94,7 @@ async function load() {
 
 /* ---------- rendu ---------- */
 function setView(v) {
-  view = v; lss('cv-view', v);
+  view = v;
   document.querySelectorAll('.nav button').forEach(b => b.setAttribute('aria-current', b.dataset.v === v ? 'page' : 'false'));
   $('vCave').hidden = v !== 'cave'; $('vHist').hidden = v !== 'hist'; $('vAcc').hidden = v !== 'acc';
   $('title').textContent = { cave: 'Ma cave', hist: 'Dégustations', acc: 'Accords' }[v];
@@ -241,7 +241,7 @@ function renderVin(keepScroll) {
 }
 
 /* ---------- accords mets-vins ---------- */
-let acc = lsg('cv-acc', null), accBusy = false;
+let acc = null, accBusy = false;
 const EXEMPLES = ['Choucroute de poisson', 'Côte de bœuf au barbecue', 'Plateau de fromages', 'Poulet aux morilles', 'Sushis', 'Tarte aux pommes'];
 function renderAcc() {
   const el = $('vAcc'), stock = V.filter(v => v.quantite > 0);
@@ -249,7 +249,8 @@ function renderAcc() {
   el.innerHTML = `
     <form class="acc-form" id="accF">
       <label class="field"><span>Le plat ou la recette</span>
-        <textarea id="accT" placeholder="Décrivez le plat, ou collez la recette entière : ingrédients, sauce, cuisson…">${esc(acc ? acc.plat : '')}</textarea></label>
+        <span class="acc-in"><textarea id="accT" placeholder="Décrivez le plat, ou collez la recette entière : ingrédients, sauce, cuisson…">${esc(acc ? acc.plat : '')}</textarea>
+        <button type="button" class="iconbtn acc-x" id="accX" aria-label="Effacer"${acc && acc.plat ? '' : ' hidden'}>${I_CLOSE}</button></span></label>
       <div class="acc-ex">${EXEMPLES.map(x => `<button type="button" data-ex="${esc(x)}">${esc(x)}</button>`).join('')}</div>
       <div class="foot"><span class="status" style="flex:1;color:var(--muted);font-size:14px">${stock.length ? `Choix parmi ${plur(stock.length, 'référence')} de la cave` : 'Votre cave est vide : seuls des conseils d\'achat seront proposés.'}</span>
         <button class="btn pri" type="submit" id="accGo"${accBusy ? ' disabled' : ''}>${I_GLASS}${accBusy ? 'Réflexion…' : 'Proposer des vins'}</button></div>
@@ -259,7 +260,9 @@ function renderAcc() {
       ${!sug.length ? '<div class="empty">Aucune bouteille de la cave ne s\'accorde vraiment avec ce plat.</div>' : ''}
       ${acc.res.a_acheter ? `<div class="note-acc"><b>Idéal à acheter :</b> ${esc(acc.res.a_acheter)}</div>` : ''}
       ${acc.res.conseil ? `<div class="note-acc"><b>Service :</b> ${esc(acc.res.conseil)}</div>` : ''}` : ''}</div>`;
-  el.querySelectorAll('[data-ex]').forEach(b => b.onclick = () => { $('accT').value = b.dataset.ex; $('accT').focus(); });
+  el.querySelectorAll('[data-ex]').forEach(b => b.onclick = () => { $('accT').value = b.dataset.ex; $('accX').hidden = false; $('accT').focus(); });
+  $('accT').oninput = () => { $('accX').hidden = !$('accT').value; };
+  $('accX').onclick = () => { if (accBusy) return; acc = null; renderAcc(); $('accT').focus(); };
   el.querySelectorAll('[data-voir]').forEach(b => b.onclick = () => openVin(b.dataset.voir));
   el.querySelectorAll('[data-boire]').forEach(b => b.onclick = () => {
     const v = V.find(x => x.id === b.dataset.boire), plat = (acc.res && acc.res.plat) || acc.plat;
@@ -282,7 +285,7 @@ function renderAcc() {
       if (!data || data.error) throw new Error((data && data.error) || 'Réponse vide');
       acc = { plat, res: data };
     } catch (e2) { acc = { plat, err: 'Impossible de proposer des vins : ' + (e2.message || e2) }; }
-    accBusy = false; lss('cv-acc', acc); if (view === 'acc') renderAcc();
+    accBusy = false; if (view === 'acc') renderAcc();
   };
 }
 function sugCard(s) {
