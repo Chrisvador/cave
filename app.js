@@ -40,7 +40,7 @@ const I_CAM = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="current
 /* ---------- état ---------- */
 let me = null, foyer = null, membres = [];
 let V = [], M = [];   // vins, mouvements
-let view = lsg('cv-view', 'cave'), filtre = lsg('cv-filtre', 'tous'), tri = lsg('cv-tri', 'nom'), recherche = '', voirVides = false, openId = null;
+let view = ['cave', 'hist', 'acc'].includes(lsg('cv-view', 'cave')) ? lsg('cv-view', 'cave') : 'cave', filtre = lsg('cv-filtre', 'tous'), tri = lsg('cv-tri', 'nom'), recherche = '', voirVides = false, openId = null;
 const CACHE = 'cv-cache';
 
 let toastT;
@@ -96,14 +96,15 @@ async function load() {
 function setView(v) {
   view = v; lss('cv-view', v);
   document.querySelectorAll('.nav button').forEach(b => b.setAttribute('aria-current', b.dataset.v === v ? 'page' : 'false'));
-  $('vCave').hidden = v !== 'cave'; $('vHist').hidden = v !== 'hist';
-  $('title').textContent = v === 'cave' ? 'Ma cave' : 'Dégustations';
+  $('vCave').hidden = v !== 'cave'; $('vHist').hidden = v !== 'hist'; $('vAcc').hidden = v !== 'acc';
+  $('title').textContent = { cave: 'Ma cave', hist: 'Dégustations', acc: 'Accords' }[v];
+  $('addBtn').hidden = v === 'acc';
   render(); window.scrollTo(0, 0);
 }
 function render() {
   if (!foyer) return;
   $('sub').textContent = foyer.nom;
-  if (view === 'cave') renderCave(); else renderHist();
+  if (view === 'cave') renderCave(); else if (view === 'hist') renderHist(); else renderAcc();
 }
 
 function renderCave() {
@@ -239,8 +240,66 @@ function renderVin(keepScroll) {
   $('sheet').querySelectorAll('[data-delm]').forEach(b => b.onclick = () => delMouv(M.find(m => m.id === b.dataset.delm)));
 }
 
+/* ---------- accords mets-vins ---------- */
+let acc = lsg('cv-acc', null), accBusy = false;
+const EXEMPLES = ['Choucroute de poisson', 'Côte de bœuf au barbecue', 'Plateau de fromages', 'Poulet aux morilles', 'Sushis', 'Tarte aux pommes'];
+function renderAcc() {
+  const el = $('vAcc'), stock = V.filter(v => v.quantite > 0);
+  const sug = acc && acc.res ? (acc.res.suggestions || []).map(s => ({ ...s, v: V.find(x => x.id === s.id) })).filter(s => s.v && s.v.quantite > 0) : [];
+  el.innerHTML = `
+    <form class="acc-form" id="accF">
+      <label class="field"><span>Le plat ou la recette</span>
+        <textarea id="accT" placeholder="Décrivez le plat, ou collez la recette entière : ingrédients, sauce, cuisson…">${esc(acc ? acc.plat : '')}</textarea></label>
+      <div class="acc-ex">${EXEMPLES.map(x => `<button type="button" data-ex="${esc(x)}">${esc(x)}</button>`).join('')}</div>
+      <div class="foot"><span class="status" style="flex:1;color:var(--muted);font-size:14px">${stock.length ? `Choix parmi ${plur(stock.length, 'référence')} de la cave` : 'Votre cave est vide : seuls des conseils d\'achat seront proposés.'}</span>
+        <button class="btn pri" type="submit" id="accGo"${accBusy ? ' disabled' : ''}>${I_GLASS}${accBusy ? 'Réflexion…' : 'Proposer des vins'}</button></div>
+    </form>
+    <div class="acc-res" id="accR">${accBusy ? '<div class="wait">Le sommelier parcourt la cave…</div>' : acc && acc.err ? `<p class="err">${esc(acc.err)}</p>` : acc && acc.res ? `
+      ${sug.map(s => sugCard(s)).join('')}
+      ${!sug.length ? '<div class="empty">Aucune bouteille de la cave ne s\'accorde vraiment avec ce plat.</div>' : ''}
+      ${acc.res.a_acheter ? `<div class="note-acc"><b>Idéal à acheter :</b> ${esc(acc.res.a_acheter)}</div>` : ''}
+      ${acc.res.conseil ? `<div class="note-acc"><b>Service :</b> ${esc(acc.res.conseil)}</div>` : ''}` : ''}</div>`;
+  el.querySelectorAll('[data-ex]').forEach(b => b.onclick = () => { $('accT').value = b.dataset.ex; $('accT').focus(); });
+  el.querySelectorAll('[data-voir]').forEach(b => b.onclick = () => openVin(b.dataset.voir));
+  el.querySelectorAll('[data-boire]').forEach(b => b.onclick = () => {
+    const v = V.find(x => x.id === b.dataset.boire), plat = (acc.res && acc.res.plat) || acc.plat;
+    mouvForm(v, -1, `Avec : ${plat.split('\n')[0].slice(0, 120)}`, closeSheet);
+  });
+  $('accF').onsubmit = async e => {
+    e.preventDefault(); const plat = $('accT').value.trim();
+    if (!plat) { $('accT').focus(); return; }
+    accBusy = true; acc = { plat }; renderAcc();
+    const vins = stock.map(v => {
+      const o = { id: v.id, couleur: v.couleur, domaine: v.domaine, cuvee: v.nom, appellation: v.appellation, region: v.region, pays: v.pays,
+        millesime: v.millesime, cepages: v.cepages, bouteilles: v.quantite, garde_debut: v.garde_debut, garde_fin: v.garde_fin, note: v.note, commentaire: v.commentaire };
+      for (const k in o) if (o[k] == null || o[k] === '') delete o[k];
+      return o;
+    });
+    try {
+      const { data, error } = await sb.functions.invoke('analyse-vin', { body: { accords: { plat, vins, annee: ANNEE } } });
+      if (error) throw error;
+      if (data && data.ia === false) throw new Error('La clé API Claude n\'est pas configurée (voir Réglages).');
+      if (!data || data.error) throw new Error((data && data.error) || 'Réponse vide');
+      acc = { plat, res: data };
+    } catch (e2) { acc = { plat, err: 'Impossible de proposer des vins : ' + (e2.message || e2) }; }
+    accBusy = false; lss('cv-acc', acc); if (view === 'acc') renderAcc();
+  };
+}
+function sugCard(s) {
+  const v = s.v, u = url(thumb(v.photo)), g = garde(v);
+  return `<div class="sug" style="--cc:var(--c-${v.couleur})">
+    <div class="ph">${u ? `<img src="${esc(u)}" alt="" loading="lazy">` : I_BOTTLE}</div>
+    <div class="bd">
+      <h3>${esc(titre(v))}${v.millesime ? ' ' + v.millesime : ''}</h3>
+      <div class="meta">${esc([v.nom ? v.domaine : null, v.appellation].filter(Boolean).join(' · ')) || COULEURS[v.couleur]} · ${btl(v.quantite)}</div>
+      <div class="tags">${'<span class="tag">' + stars(Math.max(1, Math.min(5, s.score || 3))) + '</span>'}${g ? `<span class="tag ${g.c}">${g.t}</span>` : ''}</div>
+      <p>${esc(s.raison)}</p>
+      <div class="acts"><button class="btn pri" data-boire="${v.id}">${I_GLASS}Boire celle-ci</button><button class="btn" data-voir="${v.id}">Voir la fiche</button></div>
+    </div></div>`;
+}
+
 /* ---------- boire / ajouter ---------- */
-function mouvForm(v, sens) {
+function mouvForm(v, sens, prefill = '', back = null) {
   const sortie = sens < 0;
   openSheet(sortie ? 'Boire une bouteille' : 'Ajouter des bouteilles', `
     <form class="f" id="mf">
@@ -249,16 +308,16 @@ function mouvForm(v, sens) {
         <input id="mQ" type="number" inputmode="numeric" min="1" ${sortie ? `max="${v.quantite}"` : ''} value="1" class="field"><button type="button" id="mPlus" aria-label="Plus">+</button></div></div>
       <label class="field"><span>Date</span><input id="mD" type="date" value="${today()}" max="${today()}"></label>
       <label class="field"><span>${sortie ? 'Occasion, avec qui, impressions' : 'De qui / d\'où viennent-elles'}</span>
-        <textarea id="mC" placeholder="${sortie ? 'Ex. Dîner avec les Muller, superbe avec le gibier' : 'Ex. Offert par Paul pour mes 56 ans'}"></textarea></label>
+        <textarea id="mC" placeholder="${sortie ? 'Ex. Dîner avec les Muller, superbe avec le gibier' : 'Ex. Offert par Paul pour mes 56 ans'}">${esc(prefill)}</textarea></label>
       ${sortie ? `<div class="field"><span>Note du vin</span><div class="ratepick" id="mN">${[1, 2, 3, 4, 5].map(i => `<button type="button" data-n="${i}" class="${i <= (v.note || 0) ? 'on' : ''}" aria-label="${i} sur 5">★</button>`).join('')}</div></div>` : ''}
       <p class="err" id="mErr"></p>
       <div class="foot"><button class="btn" type="button" id="mCancel">Annuler</button><button class="btn pri" type="submit">${sortie ? 'Enregistrer' : 'Ajouter'}</button></div>
-    </form>`, { back: backToVin(v.id) });
+    </form>`, { back: back || backToVin(v.id) });
   let note = v.note || 0;
   const q = $('mQ'), lim = n => Math.max(1, sortie ? Math.min(v.quantite, n) : n);
   $('mMoins').onclick = () => { q.value = lim((+q.value || 1) - 1); };
   $('mPlus').onclick = () => { q.value = lim((+q.value || 0) + 1); };
-  $('mCancel').onclick = backToVin(v.id);
+  $('mCancel').onclick = back || backToVin(v.id);
   if ($('mN')) $('mN').querySelectorAll('button').forEach(b => b.onclick = () => { note = +b.dataset.n === note ? 0 : +b.dataset.n; $('mN').querySelectorAll('button').forEach(x => x.classList.toggle('on', +x.dataset.n <= note)); });
   $('mf').onsubmit = async e => {
     e.preventDefault();
@@ -270,7 +329,7 @@ function mouvForm(v, sens) {
     const r = await sb.from('cave_vins').update(upd).eq('id', v.id).select().single();
     if (r.error) { $('mErr').textContent = r.error.message; return; }
     M.unshift(ins.data); M.sort((a, b) => b.date.localeCompare(a.date) || b.created_at.localeCompare(a.created_at));
-    V = V.map(x => x.id === v.id ? r.data : x); saveCache(); render(); openVin(v.id);
+    V = V.map(x => x.id === v.id ? r.data : x); saveCache(); render(); if (back) closeSheet(); else openVin(v.id);
     toast(sortie ? (r.data.quantite ? `Santé ! Il en reste ${r.data.quantite}.` : 'Santé ! C\'était la dernière.') : `${btl(n)} ajoutée${n > 1 ? 's' : ''}`);
   };
 }

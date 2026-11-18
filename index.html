@@ -105,6 +105,27 @@ h1,h2,h3{font-family:var(--f-head);font-weight:650;letter-spacing:-.01em;margin:
 .item .s{color:var(--muted);font-size:14px}
 .item .d{color:var(--muted);font-size:13px;white-space:nowrap}
 
+/* accords */
+.acc-form{background:var(--paper);border-radius:var(--r);box-shadow:var(--shadow);padding:14px;display:grid;gap:10px}
+.acc-form textarea{border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:10px 12px;min-height:110px;resize:vertical;width:100%}
+.acc-form .foot{margin:0}
+.acc-ex{display:flex;gap:6px;flex-wrap:wrap}
+.acc-ex button{border:1px solid var(--line);background:var(--bg);border-radius:999px;padding:5px 11px;font-size:13.5px;cursor:pointer}
+.acc-res{display:grid;gap:10px;margin-top:16px}
+.sug{background:var(--paper);border-radius:var(--r);box-shadow:var(--shadow);display:grid;grid-template-columns:72px 1fr;overflow:hidden}
+.sug .ph{background:var(--acc-soft);display:grid;place-items:center;color:var(--acc);position:relative;min-height:110px}
+.sug .ph img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.sug .ph::after{content:"";position:absolute;left:0;top:0;bottom:0;width:5px;background:var(--cc)}
+.sug .bd{padding:10px 12px 12px 14px;display:flex;flex-direction:column;gap:4px;min-width:0}
+.sug h3{font-size:18px;line-height:1.2}
+.sug .meta{color:var(--muted);font-size:14px}
+.sug p{margin:2px 0 0;font-size:15px}
+.sug .acts{margin:6px 0 0;display:flex;gap:8px;flex-wrap:wrap}
+.sug .acts .btn{min-height:38px;padding:6px 13px;font-size:14.5px}
+.note-acc{background:var(--amber-soft);color:var(--fg);border-radius:12px;padding:11px 14px;font-size:15px}
+.note-acc b{color:var(--amber)}
+.wait{color:var(--muted);text-align:center;padding:24px}
+
 /* panneau */
 .sheet{position:fixed;inset:0;background:rgba(25,10,15,.45);display:flex;justify-content:center;align-items:flex-end;z-index:20}
 @media (min-width:760px){.sheet{align-items:center;padding:24px}}
@@ -238,6 +259,7 @@ form.f{display:grid;gap:12px}
   </header>
   <section id="vCave"></section>
   <section id="vHist" hidden></section>
+  <section id="vAcc" hidden></section>
   <button class="btn pri fab" id="addBtn" type="button">
     <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg><span>Bouteille</span>
   </button>
@@ -246,6 +268,8 @@ form.f{display:grid;gap:12px}
 <nav class="nav" id="nav" hidden aria-label="Sections">
   <button data-v="cave" aria-current="page">
     <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M10 2h4v5c0 1 2 2 2 5v9a1 1 0 01-1 1H9a1 1 0 01-1-1v-9c0-3 2-4 2-5z"/><path d="M8 14h8"/></svg>Cave</button>
+  <button data-v="acc">
+    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3v18M5 3v5a2 2 0 004 0V3M17 21V3c-2 0-3.5 3-3.5 7.5H17"/></svg>Accords</button>
   <button data-v="hist">
     <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M7 3h10l-1 7a4 4 0 01-8 0z"/><path d="M12 14v6M8 21h8"/></svg>Dégustations</button>
 </nav>
