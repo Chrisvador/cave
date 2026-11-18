@@ -397,7 +397,7 @@ function vinForm(v) {
   $('fFile2').onchange = e => onFile(e.target.files[0]);
   if ($('fRelire')) $('fRelire').onclick = async () => {
     $('fAna').className = 'ana'; $('fAna').textContent = 'Chargement de la photo…';
-    try { await signAll([v.photo]); const r = await fetch(url(v.photo)); if (!r.ok) throw new Error('Photo introuvable'); await onFile(await r.blob(), true); }
+    try { const { data, error } = await sb.storage.from(BUCKET).download(v.photo); if (error || !data) throw new Error('Photo introuvable'); await onFile(data, true); }
     catch (e) { $('fAna').textContent = e.message || 'Photo introuvable'; }
   };
 
