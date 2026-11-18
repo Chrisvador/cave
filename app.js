@@ -381,7 +381,7 @@ function rachatForm(v, back, finStock) {
     <form class="f" id="rf">
       <p style="margin:0">${finStock ? 'Voulez-vous racheter ' : ''}<b>${esc(titre(v))}${v.millesime ? ' ' + v.millesime : ''}</b>${finStock ? ' ?' : ''}${v.nom && v.domaine ? `<br><span style="color:var(--muted)">${esc(v.domaine)}</span>` : ''}</p>
       <div class="row2">
-        <label class="field"><span>Bouteilles</span><input id="rQ" type="number" inputmode="numeric" min="1" value="${ex ? ex.quantite : 6}"></label>
+        <label class="field"><span>Bouteilles</span><input id="rQ" type="number" inputmode="numeric" min="1" value="${ex ? ex.quantite : 1}"></label>
         <label class="field"><span>Chez</span><select id="rC" data-cav>${cavOptions(ex ? ex.caviste_id : v.caviste_id)}</select></label>
       </div>
       <label class="field"><span>Note</span><input id="rN" value="${esc(ex ? ex.note : '')}" placeholder="Ex. millésime suivant, carton de 6…"></label>
