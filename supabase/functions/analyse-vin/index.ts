@@ -29,7 +29,7 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   const key = Deno.env.get("ANTHROPIC_API_KEY");
   if (!key) return json({ ia: false });
-  let body: { image?: string; ping?: boolean; accords?: Accords } = {};
+  let body: { image?: string; ping?: boolean; accords?: Accords; facture?: string; plats?: Vin } = {};
   try { body = await req.json(); } catch { return json({ error: "Requête invalide" }, 400); }
   if (body.ping) {
     // Vérifie la clé, le crédit et le modèle avec un tout petit appel
@@ -43,6 +43,8 @@ Deno.serve(async (req) => {
     return json({ ia: true, ok: t.ok, status: t.status, detail });
   }
   if (body.accords) return accords(key, body.accords);
+  if (body.facture) return facture(key, body.facture);
+  if (body.plats) return plats(key, body.plats);
   let image = body.image || "";
   image = image.replace(/^data:image\/\w+;base64,/, "");
   if (!image || image.length > 5_000_000) return json({ error: "Image manquante ou trop lourde" }, 400);
@@ -148,5 +150,95 @@ Réponds en français, de façon concise, via l'outil accords.`;
   const out = use.input as { suggestions?: { id: string }[] };
   out.suggestions = (out.suggestions || []).filter((s) => ids.has(s.id));
   console.log("accords ok", out.suggestions.length);
+  return json(out);
+}
+
+// ---------- Appel Claude avec un outil imposé ----------
+async function claudeOutil(key: string, content: unknown, tool: Record<string, unknown>, maxTokens: number, model?: string) {
+  const r = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+    body: JSON.stringify({
+      model: model || Deno.env.get("ANTHROPIC_MODEL") || "claude-haiku-5-5",
+      max_tokens: maxTokens, tools: [tool], tool_choice: { type: "tool", name: tool.name },
+      messages: [{ role: "user", content }],
+    }),
+  });
+  if (!r.ok) { const t = (await r.text()).slice(0, 300); console.log(tool.name, r.status, t); return { error: `Service indisponible (${r.status})` }; }
+  const d = await r.json();
+  const use = (d.content || []).find((c: { type: string }) => c.type === "tool_use");
+  if (!use || !use.input) { console.log(tool.name, "sans outil", d.stop_reason); return { error: "Réponse illisible" }; }
+  console.log(tool.name, "ok");
+  return use.input;
+}
+
+// ---------- Scan de facture ----------
+async function facture(key: string, image: string) {
+  image = String(image || "").replace(/^data:image\/\w+;base64,/, "");
+  if (!image || image.length > 6_000_000) return json({ error: "Image manquante ou trop lourde" }, 400);
+  const str = { type: ["string", "null"] };
+  const tool = {
+    name: "facture",
+    description: "Enregistre le contenu d'une facture ou d'un ticket de caviste.",
+    input_schema: {
+      type: "object",
+      properties: {
+        caviste: { type: ["string", "null"], description: "Nom du vendeur (caviste, domaine, magasin) en tête de facture" },
+        date: { type: ["string", "null"], description: "Date de la facture au format AAAA-MM-JJ" },
+        lignes: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              domaine: str, nom: { ...str, description: "Cuvée" }, appellation: str, region: str,
+              millesime: { type: ["integer", "null"] },
+              couleur: { type: "string", enum: ["rouge", "blanc", "rose", "effervescent", "liquoreux"] },
+              quantite: { type: "integer", description: "Nombre de bouteilles (convertir les cartons : 1 carton de 6 = 6)" },
+              contenance: { type: "string", enum: ["37,5 cl", "50 cl", "75 cl", "150 cl", "300 cl"] },
+              prix_unitaire: { type: ["number", "null"], description: "Prix TTC d'une bouteille en euros" },
+            },
+            required: ["couleur", "quantite"],
+          },
+        },
+      },
+      required: ["lignes"],
+    },
+  };
+  const out = await claudeOutil(key, [
+    { type: "image", source: { type: "base64", media_type: "image/jpeg", data: image } },
+    { type: "text", text: `Voici la photo d'une facture ou d'un ticket d'achat de vins. Relève chaque ligne de vin (ignore les frais de port, remises, verres, accessoires et autres articles).
+Pour chaque vin : domaine, cuvée, appellation, région, millésime, couleur (déduite de l'appellation, du cépage ou des mentions), nombre de bouteilles, contenance et prix TTC à la bouteille.
+N'invente rien : mets null si une information n'est pas lisible. Remplis l'outil facture.` },
+  ], tool, 3000, Deno.env.get("ANTHROPIC_MODEL_FACTURE"));
+  return json(out);
+}
+
+// ---------- Accord inversé : plats pour un vin ----------
+async function plats(key: string, vin: Vin) {
+  const tool = {
+    name: "plats",
+    description: "Propose des plats qui s'accordent avec le vin.",
+    input_schema: {
+      type: "object",
+      properties: {
+        plats: {
+          type: "array", minItems: 3, maxItems: 5,
+          items: { type: "object", properties: {
+            nom: { type: "string", description: "Nom du plat" },
+            description: { type: "string", description: "Le plat en une phrase : ingrédients principaux et cuisson" },
+            raison: { type: "string", description: "Pourquoi l'accord fonctionne, une phrase" },
+            difficulte: { type: "string", enum: ["facile", "moyen", "élaboré"] },
+          }, required: ["nom", "description", "raison"] },
+        },
+        fromage: { type: ["string", "null"], description: "Un ou deux fromages qui iraient bien, ou null" },
+        conseil: { type: ["string", "null"], description: "Conseil de service court (température, carafe)" },
+      },
+      required: ["plats"],
+    },
+  };
+  const out = await claudeOutil(key, `Tu es sommelier et cuisinier. Voici un vin de ma cave :
+${JSON.stringify(vin)}
+Propose 4 plats variés (du quotidien au plus festif) qui s'accordent vraiment bien avec ce vin, plutôt de saison (nous sommes en ${new Date().toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}).
+Réponds en français, de façon concise, via l'outil plats.`, tool, 1500, Deno.env.get("ANTHROPIC_MODEL_ACCORDS"));
   return json(out);
 }
