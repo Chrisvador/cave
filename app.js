@@ -320,7 +320,8 @@ async function analyseIA(blob) {
   if (error) { console.warn(error); return null; }
   if (data && data.ia === false) { iaDispo = false; lss('cv-ia', false); return null; }
   iaDispo = true; lss('cv-ia', true);
-  return data && !data.error ? data : null;
+  if (data && data.error) throw new Error(data.error);
+  return data || null;
 }
 
 /* ---------- formulaire vin ---------- */
@@ -381,7 +382,7 @@ function vinForm(v) {
     if (my !== gen) return;
     if (loc && !colTouchee) setCol(loc, true);
     ana.textContent = loc ? `Couleur estimée : ${COULEURS[loc]}. Lecture de l'étiquette…` : 'Lecture de l\'étiquette…';
-    let ia = null; try { ia = await analyseIA(await toJpeg(f, 1100, .8)); } catch (e) { console.warn(e); }
+    let ia = null, iaErr = ''; try { ia = await analyseIA(await toJpeg(f, 1100, .8)); } catch (e) { console.warn(e); iaErr = e.message || ''; }
     if (my !== gen) return;
     if (ia) {
       if (ia.couleur && COULEURS[ia.couleur] && !colTouchee) setCol(ia.couleur, true);
@@ -391,6 +392,7 @@ function vinForm(v) {
     } else {
       ana.className = loc ? 'ana ok' : 'ana';
       ana.textContent = loc ? `Couleur estimée d'après la photo : ${COULEURS[loc]}. Corrigez si besoin.` : 'Couleur non reconnue : choisissez-la ci-dessous.';
+      if (iaErr) ana.textContent += ` (Étiquette non lue : ${iaErr}.)`;
     }
   };
   $('fFile').onchange = e => onFile(e.target.files[0]);
