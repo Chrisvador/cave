@@ -56,6 +56,12 @@ Deno.serve(async (req) => {
         couleur: { type: "string", enum: ["rouge", "blanc", "rose", "effervescent", "liquoreux"] },
         confiance: { type: "number" },
         domaine: str, nom: str, millesime: { type: ["integer", "null"] }, appellation: str, region: str, pays: str, cepages: str,
+        cadre: {
+          type: ["object", "null"],
+          description: "Rectangle entourant l'étiquette principale (face avant) de la bouteille, en fractions de la largeur et de la hauteur de l'image (0 = bord gauche/haut, 1 = bord droit/bas). Si aucune étiquette n'est visible, la bouteille entière.",
+          properties: { x: { type: "number" }, y: { type: "number" }, largeur: { type: "number" }, hauteur: { type: "number" } },
+          required: ["x", "y", "largeur", "hauteur"],
+        },
       },
       required: ["couleur"],
     },

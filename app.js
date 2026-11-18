@@ -394,7 +394,8 @@ function vinForm(v) {
         <div class="pb">
           <label class="btn pri">${I_CAM}<span>${v.photo ? 'Changer la photo' : 'Photographier'}</span><input id="fFile" type="file" accept="image/*" capture="environment" hidden></label>
           <label class="btn"><span>Choisir dans les photos</span><input id="fFile2" type="file" accept="image/*" hidden></label>
-          ${!neuf && v.photo ? '<button class="btn" type="button" id="fRelire">Relire l\'étiquette</button>' : ''}
+          ${!neuf && v.photo ? '<button class="btn" type="button" id="fRelire">Relire et recadrer</button>' : ''}
+          <div class="seg" id="fCropSeg" role="group" aria-label="Photo" hidden><button type="button" data-k="1" aria-pressed="true">Recadrée</button><button type="button" data-k="0" aria-pressed="false">Originale</button></div>
           <div class="ana" id="fAna" aria-live="polite">${neuf ? 'La couleur et l\'étiquette sont analysées à partir de la photo.' : ''}</div>
         </div>
       </div>
@@ -427,6 +428,10 @@ function vinForm(v) {
     </form>`, { back: neuf ? null : backToVin(v.id) });
 
   let couleur = v.couleur, colTouchee = !neuf, note = v.note || 0, file = null, gen = 0;
+  let source = null, crop = null, useCrop = true, cropChange = false;   // source : photo d'origine ; crop : version recadrée
+  const showPh = b => { $('fPh').innerHTML = `<img src="${URL.createObjectURL(b)}" alt="">`; };
+  const paintSeg = () => { const g = $('fCropSeg'); g.hidden = !crop; g.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', (b.dataset.k === '1') === useCrop)); };
+  $('fCropSeg').querySelectorAll('button').forEach(b => b.onclick = () => { useCrop = b.dataset.k === '1'; paintSeg(); showPh(useCrop ? crop : source); });
   const setCol = (c, auto) => { couleur = c; if (!auto) colTouchee = true; $('fCol').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b.dataset.c === c)); };
   $('fCol').querySelectorAll('button').forEach(b => b.onclick = () => setCol(b.dataset.c));
   $('fNote').querySelectorAll('button').forEach(b => b.onclick = () => { note = +b.dataset.n === note ? 0 : +b.dataset.n; $('fNote').querySelectorAll('button').forEach(x => x.classList.toggle('on', +x.dataset.n <= note)); });
@@ -435,7 +440,8 @@ function vinForm(v) {
   const fill = (id, x) => { if (x != null && x !== '' && !$(id).value.trim()) $(id).value = x; };
   const onFile = async (f, garder) => {
     if (!f) return; const my = ++gen, ana = $('fAna');
-    if (!garder) { file = f; $('fPh').innerHTML = `<img src="${URL.createObjectURL(f)}" alt="">`; } else colTouchee = false;
+    source = f; crop = null; cropChange = false; paintSeg();
+    if (!garder) { file = f; showPh(f); } else colTouchee = false;
     ana.className = 'ana'; ana.textContent = 'Analyse de la photo…';
     let loc = null; try { loc = await couleurLocale(f); } catch (e) { console.warn(e); }
     if (my !== gen) return;
@@ -448,6 +454,7 @@ function vinForm(v) {
       fill('fDom', ia.domaine); fill('fNom', ia.nom); fill('fApp', ia.appellation); fill('fMil', ia.millesime);
       fill('fReg', ia.region); fill('fPays', ia.pays); fill('fCep', ia.cepages);
       ana.className = 'ana ok'; ana.textContent = `Étiquette lue : ${COULEURS[couleur]}. Vérifiez les champs remplis.`;
+      if (ia.cadre) { try { const c = await recadrer(f, ia.cadre); if (my === gen && c) { crop = c; useCrop = true; cropChange = true; paintSeg(); showPh(c); ana.textContent += ' Photo recadrée sur l\'étiquette.'; } } catch (e) { console.warn(e); } }
     } else {
       ana.className = loc ? 'ana ok' : 'ana';
       ana.textContent = loc ? `Couleur estimée d'après la photo : ${COULEURS[loc]}. Corrigez si besoin.` : 'Couleur non reconnue : choisissez-la ci-dessous.';
@@ -458,7 +465,7 @@ function vinForm(v) {
   $('fFile2').onchange = e => onFile(e.target.files[0]);
   if ($('fRelire')) $('fRelire').onclick = async () => {
     $('fAna').className = 'ana'; $('fAna').textContent = 'Chargement de la photo…';
-    try { const { data, error } = await sb.storage.from(BUCKET).download(v.photo); if (error || !data) throw new Error('Photo introuvable'); await onFile(data, true); }
+    try { const { data, error } = await sb.storage.from(BUCKET).download(v.photo_orig || v.photo); if (error || !data) throw new Error('Photo introuvable'); await onFile(data, true); }
     catch (e) { $('fAna').textContent = e.message || 'Photo introuvable'; }
   };
 
@@ -476,13 +483,22 @@ function vinForm(v) {
     go.disabled = true;
     try {
       const id = neuf ? uuid() : v.id;
-      if (file) {
+      if (file || (cropChange && source)) {
         go.textContent = 'Envoi de la photo…';
-        const path = `${foyer.id}/${id}/${uuid()}.jpg`, st = sb.storage.from(BUCKET);
-        let r = await st.upload(path, await toJpeg(file, 1600, .82), { contentType: 'image/jpeg' }); if (r.error) throw r.error;
-        r = await st.upload(thumb(path), await toJpeg(file, 480, .78), { contentType: 'image/jpeg' }); if (r.error) throw r.error;
-        if (v.photo) st.remove([v.photo, thumb(v.photo)]).catch(() => {});
-        row.photo = path; await signAll([path, thumb(path)]);
+        const st = sb.storage.from(BUCKET), np = () => `${foyer.id}/${id}/${uuid()}.jpg`;
+        const up = async (blob, withThumb) => { const p = np();
+          let r = await st.upload(p, blob === crop ? blob : await toJpeg(blob, 1600, .82), { contentType: 'image/jpeg' }); if (r.error) throw r.error;
+          if (withThumb) { r = await st.upload(thumb(p), await toJpeg(blob, 480, .8), { contentType: 'image/jpeg' }); if (r.error) throw r.error; }
+          return p; };
+        const old = [v.photo, v.photo_orig].filter(Boolean);
+        let orig = file ? null : (v.photo_orig || v.photo), main;
+        if (file) orig = await up(file, !(useCrop && crop));
+        if (useCrop && crop) main = await up(crop, true);
+        else { main = orig; if (!file) { const r = await st.upload(thumb(orig), await toJpeg(source, 480, .8), { contentType: 'image/jpeg', upsert: true }); if (r.error) throw r.error; } }
+        row.photo = main; row.photo_orig = main === orig ? null : orig;
+        const garde = new Set([row.photo, row.photo_orig]);
+        const del = old.filter(p => !garde.has(p)); if (del.length) st.remove(del.flatMap(p => [p, thumb(p)])).catch(() => {});
+        await signAll([main, thumb(main)]);
       }
       if (neuf) {
         const q = Math.max(1, parseInt($('fQ').value, 10) || 1);
@@ -506,15 +522,45 @@ async function delVin(v) {
 }
 
 /* ---------- photos ---------- */
+// Recadre sur l'étiquette (cadre en fractions 0-1), format 3:4, et corrige légèrement la lumière.
+async function recadrer(blob, c) {
+  const x = +c.x, y = +c.y, w = +c.largeur, h = +c.hauteur;
+  if (![x, y, w, h].every(n => isFinite(n)) || w <= .02 || h <= .02 || w * h > .8) return null;
+  const bmp = await createImageBitmap(blob), W = bmp.width, H = bmp.height;
+  let cx = (x + w / 2) * W, cy = (y + h / 2) * H, bw = w * W * 1.18, bh = h * H * 1.14;
+  if (bw / bh > .75) bh = bw / .75; else bw = bh * .75;                  // format portrait 3:4
+  const k = Math.min(1, W / bw, H / bh); bw *= k; bh *= k;
+  let sx = Math.min(Math.max(0, cx - bw / 2), W - bw), sy = Math.min(Math.max(0, cy - bh / 2), H - bh);
+  if (bw * bh > .85 * W * H) { bmp.close && bmp.close(); return null; }  // presque toute l'image : inutile
+  const out = Math.min(1600, Math.round(bh)), ow = Math.round(out * .75);
+  const cv = document.createElement('canvas'); cv.width = ow; cv.height = out;
+  const g = cv.getContext('2d', { willReadFrequently: true }); g.imageSmoothingQuality = 'high';
+  g.drawImage(bmp, sx, sy, bw, bh, 0, 0, ow, out); bmp.close && bmp.close();
+  // niveaux automatiques : étire entre les 1 % les plus sombres et les 1 % les plus clairs
+  const im = g.getImageData(0, 0, ow, out), d = im.data, hist = new Uint32Array(256);
+  for (let i = 0; i < d.length; i += 4) hist[(d[i] * 77 + d[i + 1] * 150 + d[i + 2] * 29) >> 8]++;
+  const n = d.length / 4; let lo = 0, hi = 255, acc = 0;
+  for (; lo < 255; lo++) { acc += hist[lo]; if (acc > n * .01) break; }
+  acc = 0; for (; hi > 0; hi--) { acc += hist[hi]; if (acc > n * .01) break; }
+  if (hi - lo > 40 && (lo > 4 || hi < 251)) {
+    const f = Math.min(1.3, 255 / (hi - lo)), mid = (lo + hi) / 2, lut = new Uint8ClampedArray(256);
+    for (let i = 0; i < 256; i++) lut[i] = 127.5 + (i - mid) * f;   // contraste modéré, centré
+    for (let i = 0; i < d.length; i += 4) { d[i] = lut[d[i]]; d[i + 1] = lut[d[i + 1]]; d[i + 2] = lut[d[i + 2]]; }
+    g.putImageData(im, 0, 0);
+  }
+  return await new Promise((res, rej) => cv.toBlob(b => b ? res(b) : rej(new Error('Conversion impossible')), 'image/jpeg', .86));
+}
 async function toJpeg(src, max, q) {
   const bmp = await createImageBitmap(src);
   const k = Math.min(1, max / Math.max(bmp.width, bmp.height)), w = Math.round(bmp.width * k), h = Math.round(bmp.height * k);
   const c = document.createElement('canvas'); c.width = w; c.height = h; c.getContext('2d').drawImage(bmp, 0, 0, w, h); bmp.close && bmp.close();
   return await new Promise((res, rej) => c.toBlob(b => b ? res(b) : rej(new Error('Conversion impossible')), 'image/jpeg', q));
 }
-function openViewer(v) {
-  const el = $('viewer'); el.innerHTML = `<img src="${esc(url(v.photo) || url(thumb(v.photo)))}" alt="${esc(titre(v))}"><div class="vbar"><button class="btn" id="vwClose">Fermer</button></div>`;
+async function openViewer(v, orig) {
+  const p = orig && v.photo_orig ? v.photo_orig : v.photo; if (orig) await signAll([p]);
+  const el = $('viewer'); el.innerHTML = `<img src="${esc(url(p) || url(thumb(p)))}" alt="${esc(titre(v))}"><div class="vbar">${v.photo_orig ? `<button class="btn" id="vwAlt">${orig ? 'Photo recadrée' : 'Photo d\'origine'}</button>` : ''}<button class="btn" id="vwClose">Fermer</button></div>`;
   el.hidden = false; $('vwClose').onclick = closeViewer; el.querySelector('img').onclick = closeViewer;
+  if ($('vwAlt')) $('vwAlt').onclick = () => openViewer(v, !orig);
 }
 function closeViewer() { $('viewer').hidden = true; $('viewer').innerHTML = ''; }
 
