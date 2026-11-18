@@ -334,6 +334,7 @@ function vinForm(v) {
         <div class="pb">
           <label class="btn pri">${I_CAM}<span>${v.photo ? 'Changer la photo' : 'Photographier'}</span><input id="fFile" type="file" accept="image/*" capture="environment" hidden></label>
           <label class="btn"><span>Choisir dans les photos</span><input id="fFile2" type="file" accept="image/*" hidden></label>
+          ${!neuf && v.photo ? '<button class="btn" type="button" id="fRelire">Relire l\'étiquette</button>' : ''}
           <div class="ana" id="fAna" aria-live="polite">${neuf ? 'La couleur et l\'étiquette sont analysées à partir de la photo.' : ''}</div>
         </div>
       </div>
@@ -372,9 +373,9 @@ function vinForm(v) {
   $('fCancel').onclick = neuf ? closeSheet : backToVin(v.id);
   if ($('fDel')) $('fDel').onclick = () => delVin(v);
   const fill = (id, x) => { if (x != null && x !== '' && !$(id).value.trim()) $(id).value = x; };
-  const onFile = async f => {
-    if (!f) return; file = f; const my = ++gen, ana = $('fAna');
-    $('fPh').innerHTML = `<img src="${URL.createObjectURL(f)}" alt="">`;
+  const onFile = async (f, garder) => {
+    if (!f) return; const my = ++gen, ana = $('fAna');
+    if (!garder) { file = f; $('fPh').innerHTML = `<img src="${URL.createObjectURL(f)}" alt="">`; } else colTouchee = false;
     ana.className = 'ana'; ana.textContent = 'Analyse de la photo…';
     let loc = null; try { loc = await couleurLocale(f); } catch (e) { console.warn(e); }
     if (my !== gen) return;
@@ -394,6 +395,11 @@ function vinForm(v) {
   };
   $('fFile').onchange = e => onFile(e.target.files[0]);
   $('fFile2').onchange = e => onFile(e.target.files[0]);
+  if ($('fRelire')) $('fRelire').onclick = async () => {
+    $('fAna').className = 'ana'; $('fAna').textContent = 'Chargement de la photo…';
+    try { await signAll([v.photo]); const r = await fetch(url(v.photo)); if (!r.ok) throw new Error('Photo introuvable'); await onFile(await r.blob(), true); }
+    catch (e) { $('fAna').textContent = e.message || 'Photo introuvable'; }
+  };
 
   $('vf').onsubmit = async e => {
     e.preventDefault(); const err = $('fErr'), go = $('fGo'); err.textContent = '';
