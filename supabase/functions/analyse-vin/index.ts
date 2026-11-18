@@ -29,8 +29,20 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   const key = Deno.env.get("ANTHROPIC_API_KEY");
   if (!key) return json({ ia: false });
-  let image = "";
-  try { image = (await req.json()).image || ""; } catch { return json({ error: "Requête invalide" }, 400); }
+  let body: { image?: string; ping?: boolean } = {};
+  try { body = await req.json(); } catch { return json({ error: "Requête invalide" }, 400); }
+  if (body.ping) {
+    // Vérifie la clé, le crédit et le modèle avec un tout petit appel
+    const t = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      body: JSON.stringify({ model: Deno.env.get("ANTHROPIC_MODEL") || "claude-haiku-5-5", max_tokens: 5, messages: [{ role: "user", content: "OK" }] }),
+    });
+    const detail = t.ok ? "" : (await t.text()).slice(0, 300);
+    console.log("ping", t.status, detail);
+    return json({ ia: true, ok: t.ok, status: t.status, detail });
+  }
+  let image = body.image || "";
   image = image.replace(/^data:image\/\w+;base64,/, "");
   if (!image || image.length > 5_000_000) return json({ error: "Image manquante ou trop lourde" }, 400);
   const r = await fetch("https://api.anthropic.com/v1/messages", {
@@ -45,7 +57,7 @@ Deno.serve(async (req) => {
       ] }],
     }),
   });
-  if (!r.ok) return json({ ia: true, error: `Analyse indisponible (${r.status})` }, 200);
+  if (!r.ok) { const t = (await r.text()).slice(0, 300); console.log("analyse", r.status, t); return json({ ia: true, error: `Analyse indisponible (${r.status})` }, 200); }
   const d = await r.json();
   const txt = (d.content || []).map((c: { text?: string }) => c.text || "").join("");
   const m = txt.match(/\{[\s\S]*\}/);

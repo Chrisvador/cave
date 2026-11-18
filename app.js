@@ -315,7 +315,6 @@ async function couleurLocale(file) {
 // 2) Sur le serveur : lecture de l'étiquette par IA (si une clé est configurée).
 let iaDispo = lsg('cv-ia', null);
 async function analyseIA(blob) {
-  if (iaDispo === false) return null;
   const b64 = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result)); fr.onerror = rej; fr.readAsDataURL(blob); });
   const { data, error } = await sb.functions.invoke('analyse-vin', { body: { image: b64 } });
   if (error) { console.warn(error); return null; }
@@ -489,11 +488,15 @@ async function openSettings() {
     try { if (navigator.share) await navigator.share({ title: 'Ma cave', text: txt }); else { await navigator.clipboard.writeText(txt); toast('Invitation copiée'); } } catch {}
   };
   $('logout').onclick = async () => { await sb.auth.signOut(); localStorage.removeItem(CACHE); location.reload(); };
-  const { data } = await sb.functions.invoke('analyse-vin', { body: {} }).catch(() => ({}));
-  const ok = data && data.ia !== false; iaDispo = ok ? true : false; lss('cv-ia', iaDispo);
-  if ($('sIa')) $('sIa').textContent = ok
-    ? 'Active : la photo de l\'étiquette remplit la couleur, le domaine, l\'appellation, le millésime et la région.'
-    : 'Seule la couleur est estimée d\'après la teinte de la photo. Pour lire aussi les étiquettes, il faut ajouter une clé API Claude dans Supabase (secret ANTHROPIC_API_KEY).';
+  const { data, error } = await sb.functions.invoke('analyse-vin', { body: { ping: true } }).catch(e => ({ error: e }));
+  iaDispo = !!(data && data.ia && data.ok); lss('cv-ia', iaDispo);
+  const msg = error ? 'Vérification impossible (pas de réseau ?).'
+    : !data || data.ia === false ? 'Seule la couleur est estimée d\'après la teinte de la photo. Pour lire aussi les étiquettes, il faut ajouter une clé API Claude dans Supabase (secret ANTHROPIC_API_KEY).'
+    : data.ok ? 'Active : la photo de l\'étiquette remplit la couleur, le domaine, l\'appellation, le millésime et la région.'
+    : data.status === 401 ? 'Clé API refusée par Anthropic : vérifiez le secret ANTHROPIC_API_KEY dans Supabase.'
+    : /credit|balance/i.test(data.detail || '') ? 'Clé valide mais crédit Anthropic insuffisant : ajoutez du crédit dans la console Anthropic (Billing).'
+    : `Clé présente mais Anthropic répond une erreur ${data.status}.`;
+  if ($('sIa')) $('sIa').textContent = msg;
 }
 
 /* ---------- liens profonds ---------- */
