@@ -195,7 +195,7 @@ function openSheet(title, body, { back = null, actions = '', kind = 'form' } = {
   if (back) $('shBack').onclick = back;
   s.onclick = e => { if (e.target === s) closeSheet(); };
 }
-function closeSheet() { sheetKind = null; $('sheet').hidden = true; $('sheet').innerHTML = ''; document.body.style.overflow = ''; openId = null; if (/^#vin\//.test(location.hash)) history.replaceState(null, '', location.pathname); }
+function closeSheet() { const rpVu = rpOuvert; rpOuvert = null; if (rpVu) oublierPropositions(rpVu); sheetKind = null; $('sheet').hidden = true; $('sheet').innerHTML = ''; document.body.style.overflow = ''; openId = null; if (/^#vin\//.test(location.hash)) history.replaceState(null, '', location.pathname); }
 document.addEventListener('keydown', e => { if (e.key === 'Escape') { if (!$('viewer').hidden) closeViewer(); else if (!$('sheet').hidden) closeSheet(); } });
 const backToVin = id => () => openVin(id);
 
@@ -689,10 +689,17 @@ function repasForm(r, back) {
   };
 }
 
-let openRp = null;
+let openRp = null, rpOuvert = null;
+// À la fermeture du repas : les suggestions non retenues disparaissent
+async function oublierPropositions(id) {
+  const r = RP.find(x => x.id === id); if (!r || !r.propositions || propBusy === id) return;
+  RP = RP.map(x => x.id === id ? { ...x, propositions: null } : x); saveCache(); render();
+  const { error } = await sb.from('cave_repas').update({ propositions: null }).eq('id', id); if (error) console.warn(error);
+}
 function openRepas(id) {
   const keep = sheetKind === 'repas' && openRp === id && $('sheet').querySelector('.panel') ? $('sheet').querySelector('.panel').scrollTop : 0;
   openRp = id; const r = RP.find(x => x.id === id); if (!r) return closeSheet();
+  rpOuvert = id;
   const vins = RV.filter(x => x.repas_id === id), n = vins.reduce((s, x) => s + x.quantite, 0);
   const ligne = x => {
     const v = V.find(y => y.id === x.vin_id); if (!v) return '';
