@@ -727,8 +727,11 @@ function openRepas(id) {
         ${plat ? `<p class="mom-p">${esc(plat)}</p>` : ''}
         ${xs.map(ligne).join('')}
         ${props.length ? `<div class="props"><div class="props-h">${xs.length ? 'Autres suggestions' : 'Suggestions'}</div>${props.map(p => propLigne(p, k)).join('')}</div>` : ''}
-        ${pr && pr.a_acheter && !xs.length ? `<div class="note-acc"><b>Idéal à acheter :</b> ${esc(pr.a_acheter)}</div>` : ''}
-        ${!xs.length && !props.length && !(pr && pr.a_acheter) ? `<p class="mom-v">${r.servi ? '—' : 'Aucun vin'}</p>` : ''}</section>`; }).join('')}
+        ${pr && !xs.length && (pr.hors_cave || []).length ? `<div class="props hc"><div class="props-h">À acheter : pas d'accord idéal dans la cave</div>${pr.hors_cave.map((h, i) => `<div class="rv prop hcl">
+            <div class="rv-t"><b>${esc(h.vin)}</b><span class="why">${esc(h.raison)}${h.prix ? ` · <b>${esc(h.prix)}</b>` : ''}</span></div>
+            <button class="btn sm" data-hc="${k}|${i}">${AC.some(a => !a.fait && a.libelle === h.vin) ? '✓ Sur la liste' : 'À acheter'}</button></div>`).join('')}</div>`
+          : pr && pr.a_acheter && !xs.length ? `<div class="note-acc"><b>Idéal à acheter :</b> ${esc(pr.a_acheter)}</div>` : ''}
+        ${!xs.length && !props.length && !(pr && (pr.a_acheter || (pr.hors_cave || []).length)) ? `<p class="mom-v">${r.servi ? '—' : 'Aucun vin'}</p>` : ''}</section>`; }).join('')}
     ${r.servi ? '' : `<div class="foot" style="margin-top:18px"><span class="spacer"></span><button class="btn pri" id="rpServir"${n ? '' : ' disabled'}>${I_GLASS}Repas servi : sortir les bouteilles</button></div>`}
   `, { kind: 'repas', actions: `<button class="iconbtn" id="rpEdit" aria-label="Modifier">${I_EDIT}</button>` });
   if (keep) $('sheet').querySelector('.panel').scrollTop = keep;
@@ -746,6 +749,13 @@ function openRepas(id) {
   S.querySelectorAll('[data-moins]').forEach(b => b.onclick = () => qte(b.dataset.moins, -1));
   if ($('rpServir')) $('rpServir').onclick = () => servirRepas(r);
   if ($('rpProp')) $('rpProp').onclick = () => proposer(r);
+  S.querySelectorAll('[data-hc]').forEach(b => b.onclick = async () => {
+    const [k, i] = b.dataset.hc.split('|'), h = ((r.propositions.propositions || []).find(p => p.moment === k).hors_cave || [])[+i];
+    if (!h || AC.some(a => !a.fait && a.libelle === h.vin)) return;
+    const res = await sb.from('cave_achats').insert({ foyer_id: foyer.id, libelle: h.vin, quantite: 1, note: `Pour « ${r.nom} » (${MOMENT[k].toLowerCase()})${h.prix ? ' · ' + h.prix : ''}` }).select().single();
+    if (res.error) return fail(res.error);
+    AC = [res.data, ...AC]; saveCache(); render(); openRepas(r.id); toast('Ajouté à la liste d\'achats (Gestion)');
+  });
   S.querySelectorAll('[data-ok-v]').forEach(b => b.onclick = () => ajouterVin(r, b.dataset.okM, V.find(v => v.id === b.dataset.okV)));
 }
 

@@ -130,7 +130,7 @@ ${vins.map((v) => JSON.stringify(v)).join("\n") || "(cave vide)"}
 
 Choisis jusqu'à 5 vins de CETTE cave qui s'accordent le mieux, du meilleur au moins bon, avec un score de 1 à 5. N'inclus que des accords réellement pertinents (score ≥ 3), utilise les id exacts.
 À accord égal, privilégie les bouteilles à boire en priorité (garde qui se termine).
-Si aucun vin ne fait un très bon accord, indique dans a_acheter le style de vin idéal (ex. « un Riesling sec d'Alsace »).
+Si aucun vin de la cave n'atteint 4/5 (ou si la cave n'a rien qui convienne), indique dans a_acheter un ou deux vins précis à acheter : appellation, style, si possible un producteur réputé et une fourchette de prix (ex. « un Riesling sec d'Alsace, par ex. Trimbach, 15-20 € »).
 Réponds en français, de façon concise, via l'outil accords.`;
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -265,7 +265,12 @@ async function repas(key: string, r: Repas) {
               raison: { type: "string", description: "Pourquoi, en une phrase" },
               score: { type: "integer", minimum: 1, maximum: 5 },
             }, required: ["id", "raison", "score"] } },
-            a_acheter: { type: ["string", "null"], description: "Si rien dans la cave ne convient bien : le style de vin idéal, sinon null" },
+            hors_cave: { type: "array", maxItems: 2, description: "Vins à acheter (hors cave), seulement si aucun vin de la cave n'atteint 4/5 pour ce moment ; sinon tableau vide",
+              items: { type: "object", properties: {
+                vin: { type: "string", description: "Vin précis à acheter : appellation, style, et si possible un producteur réputé et accessible (ex. « Riesling Grand Cru Schoenenbourg, domaine Dopff au Moulin »)" },
+                raison: { type: "string", description: "Pourquoi, en une phrase" },
+                prix: { type: ["string", "null"], description: "Fourchette de prix indicative en euros (ex. « 15-25 € »)" },
+              }, required: ["vin", "raison"] } },
           }, required: ["moment", "vins"] },
         },
         conseil: { type: ["string", "null"], description: "Conseil général court sur l'enchaînement des vins ou le service" },
@@ -281,7 +286,8 @@ ${vins.map((v) => JSON.stringify(v)).join("\n") || "(cave vide)"}
 
 Ne propose des vins QUE pour les moments listés ci-dessus (n'en ajoute aucun autre, même si le repas en comporte sans doute). Pour chacun, propose 1 à 3 vins de CETTE cave, le meilleur en premier, avec un score de 1 à 5 (n'inclus que des accords pertinents, score ≥ 3).
 Pense à la progression du repas (du plus léger au plus puissant, blancs avant rouges, effervescent bienvenu à l'apéritif) et évite de proposer le même vin à deux moments sauf si c'est vraiment le meilleur choix.
-Ne propose pas un vin dont "dispo" vaut 0. Si rien ne convient bien pour un moment, renseigne a_acheter.
+Ne propose pas un vin dont "dispo" vaut 0.
+Si, pour un moment, aucun vin de la cave n'atteint 4/5 (ou s'il n'y en a aucun), propose aussi dans hors_cave 1 ou 2 vins précis à acheter, qui s'accorderaient vraiment bien.
 Réponds en français, de façon concise, via l'outil repas.`;
   const out = await claudeOutil(key, prompt, tool, 2000, Deno.env.get("ANTHROPIC_MODEL_ACCORDS")) as { error?: string; propositions?: { moment?: string; vins?: { id: string }[] }[] };
   if (out.error) return json(out);
