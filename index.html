@@ -171,6 +171,41 @@ h1,h2,h3{font-family:var(--f-head);font-weight:650;letter-spacing:-.01em;margin:
 .fx-in input{width:76px}
 .fx-in label{display:flex;gap:6px;align-items:center;color:var(--muted)}
 
+/* repas */
+.repas{background:var(--paper);border-radius:var(--r);box-shadow:var(--shadow);border:0;padding:12px 14px;text-align:left;cursor:pointer;display:grid;gap:4px;width:100%}
+.repas.servi{opacity:.7}
+.rp-h{display:flex;align-items:center;gap:10px}
+.rp-h h3{font-size:19px;flex:1}
+.repas .meta{color:var(--muted);font-size:14px}
+.repas .meta::first-letter,.rp-date::first-letter{text-transform:uppercase}
+.rp-l{font-size:14.5px;display:grid;gap:2px;margin-top:4px}
+.rp-l b{color:var(--muted);font-weight:700;margin-right:4px}
+.rp-date{margin:0 0 10px;color:var(--muted);font-weight:700}
+.mom{margin-bottom:6px}
+.mom-h{display:flex;align-items:center;gap:10px;margin:14px 0 6px}
+.mom-h h4{margin:0;flex:1}
+.mom-h .btn{min-height:36px;padding:5px 12px;font-size:14px}
+.mom-v{margin:0;color:var(--muted);font-size:14px}
+.rv,.pick{display:grid;grid-template-columns:44px 1fr auto auto;gap:10px;align-items:center;background:var(--paper);border-radius:12px;padding:6px 8px 6px 6px;margin-bottom:6px;border-left:4px solid var(--cc)}
+.pick{grid-template-columns:44px 1fr auto;border-top:0;border-right:0;border-bottom:0;width:100%;text-align:left;cursor:pointer;font:inherit;color:inherit}
+.pick.off{opacity:.55}
+.rv-ph{width:44px;height:56px;border-radius:8px;background:var(--line);display:grid;place-items:center;overflow:hidden;cursor:pointer}
+.rv-ph img{width:100%;height:100%;object-fit:contain}
+.rv-t{display:flex;flex-direction:column;min-width:0;cursor:pointer}
+.rv-t b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rv-t span{color:var(--muted);font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rv-t .warn{color:var(--red);font-style:normal;font-weight:700}
+.rv-st{display:flex;align-items:center;gap:6px;font-weight:700}
+.rv-st button{width:32px;height:32px;border-radius:50%;border:1px solid var(--line);background:var(--bg);font-size:18px;font-weight:700;cursor:pointer;color:inherit}
+.rv-q{font-weight:700;padding-right:6px}
+.pk-d{font-size:13px;color:var(--muted);white-space:nowrap}
+.filt{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.filt button{border:1px solid var(--line);background:var(--paper);border-radius:999px;padding:6px 11px;font-size:13.5px;cursor:pointer;display:inline-flex;gap:6px;align-items:center;color:inherit}
+.filt button[aria-pressed="true"]{border-color:var(--fg);box-shadow:inset 0 0 0 1px var(--fg)}
+.tag.resa{background:var(--acc-soft);color:var(--acc)}
+.notes.resa{border-left:4px solid var(--amber)}
+.notes.resa a{color:inherit}
+
 /* panneau */
 .sheet{position:fixed;inset:0;background:rgba(20,8,12,.62);-webkit-backdrop-filter:blur(10px) saturate(.7);backdrop-filter:blur(10px) saturate(.7);display:flex;justify-content:center;align-items:flex-end;z-index:20}
 @media (min-width:760px){.sheet{align-items:center;padding:24px}}
@@ -307,6 +342,7 @@ form.f{display:grid;gap:12px}
   <section id="vHist" hidden></section>
   <section id="vAcc" hidden></section>
   <section id="vGest" hidden></section>
+  <section id="vRepas" hidden></section>
   <button class="btn pri fab" id="addBtn" type="button">
     <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg><span>Bouteille</span>
   </button>
@@ -315,6 +351,8 @@ form.f{display:grid;gap:12px}
 <nav class="nav" id="nav" hidden aria-label="Sections">
   <button data-v="cave" aria-current="page">
     <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M10 2h4v5c0 1 2 2 2 5v9a1 1 0 01-1 1H9a1 1 0 01-1-1v-9c0-3 2-4 2-5z"/><path d="M8 14h8"/></svg>Cave</button>
+  <button data-v="repas">
+    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>Repas</button>
   <button data-v="acc">
     <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3v18M5 3v5a2 2 0 004 0V3M17 21V3c-2 0-3.5 3-3.5 7.5H17"/></svg>Accords</button>
   <button data-v="hist">

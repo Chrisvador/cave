@@ -39,7 +39,7 @@ const I_CAM = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="current
 
 /* ---------- état ---------- */
 let me = null, foyer = null, membres = [];
-let V = [], M = [], CV = [], AC = [];   // vins, mouvements, cavistes, achats (à racheter)
+let V = [], M = [], CV = [], AC = [], RP = [], RV = [];   // vins, mouvements, cavistes, achats (à racheter)
 let view = 'cave', filtre = lsg('cv-filtre', 'tous'), tri = lsg('cv-tri', 'nom'), recherche = '', voirVides = false, openId = null;
 const CACHE = 'cv-cache';
 
@@ -77,17 +77,19 @@ function garde(v) {
 const stars = n => n ? `<span class="stars" aria-label="${n} sur 5">${'★'.repeat(n)}${'☆'.repeat(5 - n)}</span>` : '';
 
 /* ---------- données ---------- */
-function saveCache() { lss(CACHE, { uid: me && me.id, foyer, membres, V, M, CV, AC }); }
+function saveCache() { lss(CACHE, { uid: me && me.id, foyer, membres, V, M, CV, AC, RP, RV }); }
 async function load() {
   const r = await Promise.all([
     sb.from('cave_vins').select('*').order('nom'),
     sb.from('cave_mouvements').select('*').order('date', { ascending: false }).order('created_at', { ascending: false }).limit(1000),
     sb.from('foyer_membres').select('*'),
     sb.from('cave_cavistes').select('*').order('nom'),
-    sb.from('cave_achats').select('*').order('created_at', { ascending: false }).limit(500)]);
+    sb.from('cave_achats').select('*').order('created_at', { ascending: false }).limit(500),
+    sb.from('cave_repas').select('*').order('date'),
+    sb.from('cave_repas_vins').select('*')]);
   const err = r.find(x => x.error);
   if (err) { console.warn(err.error); if (!V.length) toast('Chargement impossible : ' + err.error.message); return; }
-  [V, M, membres, CV, AC] = r.map(x => x.data);
+  [V, M, membres, CV, AC, RP, RV] = r.map(x => x.data);
   saveCache();
   await signAll(V.map(v => thumb(v.photo)));
   render();
@@ -98,16 +100,16 @@ async function load() {
 function setView(v) {
   view = v;
   document.querySelectorAll('.nav button').forEach(b => b.setAttribute('aria-current', b.dataset.v === v ? 'page' : 'false'));
-  $('vCave').hidden = v !== 'cave'; $('vHist').hidden = v !== 'hist'; $('vAcc').hidden = v !== 'acc'; $('vGest').hidden = v !== 'gest';
-  $('title').textContent = { cave: 'Ma cave', hist: 'Dégustations', acc: 'Accords', gest: 'Gestion' }[v];
-  $('addBtn').hidden = v === 'acc' || v === 'gest';
+  $('vCave').hidden = v !== 'cave'; $('vHist').hidden = v !== 'hist'; $('vAcc').hidden = v !== 'acc'; $('vGest').hidden = v !== 'gest'; $('vRepas').hidden = v !== 'repas';
+  $('title').textContent = { cave: 'Ma cave', hist: 'Dégustations', acc: 'Accords', gest: 'Gestion', repas: 'Repas' }[v];
+  $('addBtn').hidden = v !== 'cave' && v !== 'hist';
   render(); window.scrollTo(0, 0);
 }
 function render() {
   if (!foyer) return;
   $('sub').textContent = foyer.nom;
   const nr = AC.filter(a => !a.fait).length; $('dotGest').hidden = !nr; $('dotGest').textContent = nr;
-  if (view === 'cave') renderCave(); else if (view === 'hist') renderHist(); else if (view === 'acc') renderAcc(); else renderGest();
+  if (view === 'cave') renderCave(); else if (view === 'hist') renderHist(); else if (view === 'acc') renderAcc(); else if (view === 'repas') renderRepas(); else renderGest();
 }
 
 function renderCave() {
@@ -155,7 +157,7 @@ function card(v) {
       <span class="qte" aria-label="${btl(v.quantite)}">${v.quantite}</span>
       <h3>${esc(titre(v))}</h3>
       <div class="meta">${esc(sousTitre(v)) || '&nbsp;'}</div>
-      <div class="tags"><span class="tag"><i class="pastille p-${v.couleur}"></i>${COULEURS[v.couleur]}</span>${g ? `<span class="tag ${g.c}">${g.t}</span>` : ''}${v.note ? `<span class="tag">${stars(v.note)}</span>` : ''}</div>
+      <div class="tags"><span class="tag"><i class="pastille p-${v.couleur}"></i>${COULEURS[v.couleur]}</span>${g ? `<span class="tag ${g.c}">${g.t}</span>` : ''}${v.note ? `<span class="tag">${stars(v.note)}</span>` : ''}${reserves(v.id) ? `<span class="tag resa">${reserves(v.id)} réservée${reserves(v.id) > 1 ? 's' : ''}</span>` : ''}</div>
       ${v.provenance ? `<div class="de"><i>De :</i> ${esc(v.provenance)}</div>` : ''}
     </div></button>`;
 }
@@ -230,6 +232,7 @@ function renderVin(keepScroll) {
       <button class="btn" id="vPlats">Idées de plats</button>
       <button class="btn" id="vRach">${aRacheter(v.id) ? `✓ À racheter (${aRacheter(v.id).quantite})` : 'À racheter'}</button>
     </div>
+    ${repasDe(v.id).length ? `<div class="notes resa"><b>Réservé</b>${repasDe(v.id).map(o => `<a href="#" data-rpo="${o.r.id}">${btl(o.x.quantite)} · ${esc(o.r.nom)} (${esc(MOMENT[o.x.moment].toLowerCase())}, ${fmtDate(o.r.date)})</a>`).join('<br>')}</div>` : ''}
     ${v.provenance ? `<div class="notes de"><b>De qui</b>${esc(v.provenance)}</div>` : ''}
     <div class="facts">${facts.map(([k, x]) => `<div class="fact"><span>${k}</span><strong>${x}</strong></div>`).join('')}</div>
     ${v.commentaire ? `<div class="notes"><b>Commentaire</b>${esc(v.commentaire)}</div>` : ''}
@@ -244,6 +247,7 @@ function renderVin(keepScroll) {
   $('vAjout').onclick = () => mouvForm(v, 1);
   $('vPlats').onclick = () => { closeSheet(); accMode = 'vin'; accVin = { id: v.id }; setView('acc'); lancerPlats(); };
   $('vRach').onclick = () => rachatForm(v, backToVin(v.id));
+  $('sheet').querySelectorAll('[data-rpo]').forEach(a => a.onclick = e => { e.preventDefault(); openRepas(a.dataset.rpo); });
   if ($('vPh')) $('vPh').onclick = () => openViewer(v);
   $('sheet').querySelectorAll('[data-delm]').forEach(b => b.onclick = () => delMouv(M.find(m => m.id === b.dataset.delm)));
 }
@@ -615,6 +619,160 @@ function factureRevue(data) {
       saveCache(); closeSheet(); render(); toast(`${btl(nb)} ajoutée${nb > 1 ? 's' : ''} à la cave`);
     } catch (e) { $('fxErr').textContent = e.message || String(e); goBtn.disabled = false; goBtn.textContent = 'Ajouter à la cave'; }
   };
+}
+
+/* ---------- repas : réserver des vins pour un repas ---------- */
+const MOMENTS = [['aperitif', 'Apéritif'], ['entree', 'Entrée'], ['plat', 'Plat'], ['fromage', 'Fromage'], ['dessert', 'Dessert']];
+const MOMENT = Object.fromEntries(MOMENTS);
+// bouteilles réservées (repas pas encore servis) pour un vin
+const reserves = vinId => RV.filter(x => x.vin_id === vinId && RP.some(r => r.id === x.repas_id && !r.servi)).reduce((s, x) => s + x.quantite, 0);
+const dispo = v => v.quantite - reserves(v.id);
+const repasDe = vinId => RV.filter(x => x.vin_id === vinId).map(x => ({ x, r: RP.find(r => r.id === x.repas_id) })).filter(o => o.r && !o.r.servi).sort((a, b) => a.r.date.localeCompare(b.r.date));
+const fmtJour = d => { const x = new Date(d + 'T12:00:00'); return x.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: x.getFullYear() !== ANNEE ? 'numeric' : undefined }); };
+let voirPasses = false;
+
+function renderRepas() {
+  const el = $('vRepas'), t = today();
+  const avenir = RP.filter(r => !r.servi && r.date >= t).sort((a, b) => a.date.localeCompare(b.date));
+  const enRetard = RP.filter(r => !r.servi && r.date < t).sort((a, b) => b.date.localeCompare(a.date));
+  const passes = RP.filter(r => r.servi).sort((a, b) => b.date.localeCompare(a.date));
+  const carte = r => {
+    const vins = RV.filter(x => x.repas_id === r.id), n = vins.reduce((s, x) => s + x.quantite, 0);
+    const parM = MOMENTS.map(([k, l]) => [l, vins.filter(x => x.moment === k)]).filter(m => m[1].length);
+    return `<button class="repas${r.servi ? ' servi' : ''}" data-rp="${r.id}">
+      <div class="rp-h"><h3>${esc(r.nom)}</h3><span class="tag${r.servi ? ' ok' : r.date < t ? ' amber' : ''}">${r.servi ? 'Servi' : r.date < t ? 'À clôturer' : btl(n)}</span></div>
+      <div class="meta">${fmtJour(r.date)}</div>
+      ${parM.length ? `<div class="rp-l">${parM.map(([l, xs]) => `<div><b>${l}</b> ${xs.map(x => { const v = V.find(y => y.id === x.vin_id); return v ? esc(titre(v)) + (v.millesime ? ' ' + v.millesime : '') + (x.quantite > 1 ? ` ×${x.quantite}` : '') : ''; }).join(', ')}</div>`).join('')}</div>` : '<div class="meta">Aucun vin pour l\'instant</div>'}
+    </button>`;
+  };
+  el.innerHTML = `
+    <div class="foot" style="justify-content:flex-start;margin:0 0 14px"><button class="btn pri" id="rpAdd">${I_PLUS}Nouveau repas</button></div>
+    ${enRetard.length ? `<h2 class="group">À clôturer</h2><div class="list">${enRetard.map(carte).join('')}</div>` : ''}
+    ${avenir.length ? `<h2 class="group">À venir</h2><div class="list">${avenir.map(carte).join('')}</div>`
+      : !enRetard.length ? '<div class="empty">Aucun repas prévu.<br>Créez un repas (nom et date), puis réservez des vins pour l\'apéritif, l\'entrée, le plat, le fromage et le dessert.</div>' : ''}
+    ${passes.length ? `<p style="text-align:center;margin-top:18px"><button class="linkbtn" id="rpPasses">${voirPasses ? 'Masquer les repas passés' : `Repas passés (${passes.length})`}</button></p>
+      ${voirPasses ? `<div class="list">${passes.map(carte).join('')}</div>` : ''}` : ''}`;
+  $('rpAdd').onclick = () => repasForm(null);
+  if ($('rpPasses')) $('rpPasses').onclick = () => { voirPasses = !voirPasses; renderRepas(); };
+  el.querySelectorAll('[data-rp]').forEach(b => b.onclick = () => openRepas(b.dataset.rp));
+}
+
+function repasForm(r, back) {
+  const neuf = !r; r = r || { date: today() };
+  openSheet(neuf ? 'Nouveau repas' : 'Modifier le repas', `
+    <form class="f" id="rpf">
+      <label class="field"><span>Nom du repas</span><input id="rpNom" value="${esc(r.nom)}" required placeholder="Ex. Noël en famille, dîner avec les Muller…"></label>
+      <label class="field"><span>Date</span><input id="rpDate" type="date" value="${esc(r.date)}" required></label>
+      <label class="field"><span>Notes</span><textarea id="rpNotes" placeholder="Menu, invités…">${esc(r.notes)}</textarea></label>
+      <p class="err" id="rpErr"></p>
+      <div class="foot">${neuf ? '' : `<button class="btn danger" type="button" id="rpDel">${I_DEL}Supprimer</button><span class="spacer"></span>`}
+        <button class="btn" type="button" id="rpNo">Annuler</button><button class="btn pri" type="submit">${neuf ? 'Créer' : 'Enregistrer'}</button></div>
+    </form>`, { back });
+  $('rpNo').onclick = back || closeSheet;
+  if ($('rpDel')) $('rpDel').onclick = async () => {
+    if (!confirm(`Supprimer le repas « ${r.nom} » ? Les vins réservés redeviennent disponibles.`)) return;
+    const { error } = await sb.from('cave_repas').delete().eq('id', r.id); if (error) return fail(error);
+    RP = RP.filter(x => x.id !== r.id); RV = RV.filter(x => x.repas_id !== r.id); saveCache(); closeSheet(); render();
+  };
+  $('rpf').onsubmit = async e => {
+    e.preventDefault();
+    const row = { nom: val('rpNom'), date: $('rpDate').value, notes: val('rpNotes') };
+    if (!row.nom || !row.date) return;
+    const q = neuf ? sb.from('cave_repas').insert({ ...row, foyer_id: foyer.id }) : sb.from('cave_repas').update(row).eq('id', r.id);
+    const res = await q.select().single(); if (res.error) { $('rpErr').textContent = res.error.message; return; }
+    RP = neuf ? [...RP, res.data] : RP.map(x => x.id === r.id ? res.data : x); saveCache(); render(); openRepas(res.data.id);
+  };
+}
+
+let openRp = null;
+function openRepas(id) {
+  openRp = id; const r = RP.find(x => x.id === id); if (!r) return closeSheet();
+  const vins = RV.filter(x => x.repas_id === id), n = vins.reduce((s, x) => s + x.quantite, 0);
+  const ligne = x => {
+    const v = V.find(y => y.id === x.vin_id); if (!v) return '';
+    const u = url(thumb(v.photo)), manque = !r.servi && dispo(v) < 0;
+    return `<div class="rv" style="--cc:var(--c-${v.couleur})">
+      <div class="rv-ph" data-vin="${v.id}">${u ? `<img src="${esc(u)}" alt="">` : '<i class="pastille p-' + v.couleur + '"></i>'}</div>
+      <div class="rv-t" data-vin="${v.id}"><b>${esc(titre(v))}${v.millesime ? ' ' + v.millesime : ''}</b><span>${esc([v.nom ? v.domaine : null, v.appellation].filter(Boolean).join(' · ')) || COULEURS[v.couleur]}${manque ? ' · <em class="warn">plus assez en cave</em>' : ''}</span></div>
+      ${r.servi ? `<span class="rv-q">×${x.quantite}</span>` : `<div class="rv-st"><button type="button" data-moins="${x.id}" aria-label="Moins">−</button><span>${x.quantite}</span><button type="button" data-plus="${x.id}" aria-label="Plus">+</button></div>
+      <button class="iconbtn" data-rm="${x.id}" aria-label="Retirer">${I_CLOSE}</button>`}
+    </div>`;
+  };
+  openSheet(r.nom, `
+    <p class="rp-date">${fmtJour(r.date)}${n ? ' · ' + btl(n) : ''}${r.servi ? ' · <span class="tag ok">Servi</span>' : ''}</p>
+    ${r.notes ? `<div class="notes">${esc(r.notes)}</div>` : ''}
+    ${MOMENTS.map(([k, l]) => { const xs = vins.filter(x => x.moment === k);
+      return `<section class="mom"><div class="mom-h"><h4>${l}</h4>${r.servi ? '' : `<button class="btn" data-add="${k}">${I_PLUS}Vin</button>`}</div>
+        ${xs.length ? xs.map(ligne).join('') : `<p class="mom-v">${r.servi ? '—' : 'Aucun vin'}</p>`}</section>`; }).join('')}
+    ${r.servi ? '' : `<div class="foot" style="margin-top:18px"><span class="spacer"></span><button class="btn pri" id="rpServir"${n ? '' : ' disabled'}>${I_GLASS}Repas servi : sortir les bouteilles</button></div>`}
+  `, { kind: 'repas', actions: `<button class="iconbtn" id="rpEdit" aria-label="Modifier">${I_EDIT}</button>` });
+  $('rpEdit').onclick = () => repasForm(r, () => openRepas(id));
+  const S = $('sheet');
+  S.querySelectorAll('[data-vin]').forEach(b => b.onclick = () => openVin(b.dataset.vin));
+  S.querySelectorAll('[data-add]').forEach(b => b.onclick = () => choisirVin(r, b.dataset.add));
+  S.querySelectorAll('[data-rm]').forEach(b => b.onclick = async () => { const { error } = await sb.from('cave_repas_vins').delete().eq('id', b.dataset.rm); if (error) return fail(error); RV = RV.filter(x => x.id !== b.dataset.rm); saveCache(); render(); openRepas(id); });
+  const qte = async (xid, d) => {
+    const x = RV.find(y => y.id === xid), nq = x.quantite + d; if (nq < 1) return;
+    const res = await sb.from('cave_repas_vins').update({ quantite: nq }).eq('id', xid).select().single(); if (res.error) return fail(res.error);
+    RV = RV.map(y => y.id === xid ? res.data : y); saveCache(); render(); openRepas(id);
+  };
+  S.querySelectorAll('[data-plus]').forEach(b => b.onclick = () => qte(b.dataset.plus, 1));
+  S.querySelectorAll('[data-moins]').forEach(b => b.onclick = () => qte(b.dataset.moins, -1));
+  if ($('rpServir')) $('rpServir').onclick = () => servirRepas(r);
+}
+
+function choisirVin(r, moment) {
+  let q = '';
+  const draw = () => {
+    const nq = norm(q);
+    const list = V.filter(v => v.quantite > 0 && (!nq || norm([v.nom, v.domaine, v.appellation, v.region, v.millesime, COULEURS[v.couleur]].join(' ')).includes(nq)))
+      .sort((a, b) => titre(a).localeCompare(titre(b), 'fr'));
+    $('cvL').innerHTML = list.length ? list.map(v => { const d = dispo(v), u = url(thumb(v.photo));
+      return `<button class="pick${d < 1 ? ' off' : ''}" data-pick="${v.id}" style="--cc:var(--c-${v.couleur})">
+        <span class="rv-ph">${u ? `<img src="${esc(u)}" alt="">` : '<i class="pastille p-' + v.couleur + '"></i>'}</span>
+        <span class="rv-t"><b>${esc(titre(v))}${v.millesime ? ' ' + v.millesime : ''}</b><span>${esc([v.nom ? v.domaine : null, v.appellation].filter(Boolean).join(' · ')) || COULEURS[v.couleur]}</span></span>
+        <span class="pk-d">${d < 1 ? 'Tout est réservé' : `${d} dispo${d > 1 ? 's' : ''}`}</span></button>`; }).join('') : '<div class="empty">Aucun vin trouvé.</div>';
+    $('cvL').querySelectorAll('[data-pick]').forEach(b => b.onclick = () => ajouterVin(r, moment, V.find(v => v.id === b.dataset.pick)));
+  };
+  openSheet(`${MOMENT[moment]} · ${r.nom}`, `
+    <input class="search" id="cvQ" type="search" placeholder="Rechercher un vin…" style="width:100%;margin-bottom:12px" aria-label="Rechercher">
+    <div class="filt" id="cvF">${Object.entries(COULEURS).map(([k, l]) => `<button type="button" data-c="${k}"><i class="pastille p-${k}"></i>${l}</button>`).join('')}</div>
+    <div class="list" id="cvL"></div>`, { back: () => openRepas(r.id) });
+  $('cvQ').oninput = () => { q = $('cvQ').value; draw(); };
+  $('cvF').querySelectorAll('button').forEach(b => b.onclick = () => { const on = q === COULEURS[b.dataset.c]; q = on ? '' : COULEURS[b.dataset.c]; $('cvQ').value = q; $('cvF').querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', !on && x === b)); draw(); });
+  draw();
+}
+async function ajouterVin(r, moment, v) {
+  if (dispo(v) < 1 && !confirm(`Toutes les bouteilles de « ${titre(v)} » sont déjà réservées. L'ajouter quand même ?`)) return;
+  const ex = RV.find(x => x.repas_id === r.id && x.vin_id === v.id && x.moment === moment);
+  const res = ex ? await sb.from('cave_repas_vins').update({ quantite: ex.quantite + 1 }).eq('id', ex.id).select().single()
+    : await sb.from('cave_repas_vins').insert({ foyer_id: foyer.id, repas_id: r.id, vin_id: v.id, moment }).select().single();
+  if (res.error) return fail(res.error);
+  RV = ex ? RV.map(x => x.id === ex.id ? res.data : x) : [...RV, res.data]; saveCache(); render(); openRepas(r.id);
+  toast(`${titre(v)} réservé pour ${MOMENT[moment].toLowerCase()}`);
+}
+async function servirRepas(r) {
+  const vins = RV.filter(x => x.repas_id === r.id);
+  if (!confirm(`Sortir de la cave les ${btl(vins.reduce((s, x) => s + x.quantite, 0))} du repas « ${r.nom} » ?`)) return;
+  const finis = [];
+  try {
+    const parVin = new Map(); vins.forEach(x => parVin.set(x.vin_id, (parVin.get(x.vin_id) || 0) + x.quantite));
+    for (const [vid, n] of parVin) {
+      const v = V.find(y => y.id === vid); if (!v) continue;
+      const k = Math.min(n, v.quantite); if (!k) continue;
+      const m = await sb.from('cave_mouvements').insert({ foyer_id: foyer.id, vin_id: vid, date: r.date <= today() ? r.date : today(), quantite: -k, commentaire: `Repas : ${r.nom}` }).select().single(); if (m.error) throw m.error;
+      const u = await sb.from('cave_vins').update({ quantite: v.quantite - k }).eq('id', vid).select().single(); if (u.error) throw u.error;
+      M.unshift(m.data); V = V.map(y => y.id === vid ? u.data : y);
+      if (u.data.quantite === 0 && !aRacheter(vid)) finis.push(u.data);
+    }
+    const res = await sb.from('cave_repas').update({ servi: true }).eq('id', r.id).select().single(); if (res.error) throw res.error;
+    RP = RP.map(x => x.id === r.id ? res.data : x);
+    M.sort((a, b) => b.date.localeCompare(a.date) || b.created_at.localeCompare(a.created_at));
+    saveCache(); render();
+  } catch (e) { return fail(e); }
+  // proposer de racheter les vins terminés, l'un après l'autre
+  const suite = () => { const v = finis.shift(); if (v) rachatForm(v, suite, true); else { openRepas(r.id); toast('Bon appétit ! Les bouteilles sont sorties de la cave.'); } };
+  suite();
 }
 
 /* ---------- boire / ajouter ---------- */
@@ -1009,7 +1167,7 @@ function start(session) {
   if (me && me.id === session.user.id) return;
   me = session.user;
   const c = lsg(CACHE, null);
-  if (c && c.uid === me.id && c.foyer) { ({ foyer, membres = [], V = [], M = [], CV = [], AC = [] } = c); showApp(); }
+  if (c && c.uid === me.id && c.foyer) { ({ foyer, membres = [], V = [], M = [], CV = [], AC = [], RP = [], RV = [] } = c); showApp(); }
   enter();
 }
 document.addEventListener('visibilitychange', () => { if (!document.hidden && me && foyer) load(); });
