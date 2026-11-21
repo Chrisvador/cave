@@ -629,7 +629,14 @@ const reserves = vinId => RV.filter(x => x.vin_id === vinId && RP.some(r => r.id
 const dispo = v => v.quantite - reserves(v.id);
 const repasDe = vinId => RV.filter(x => x.vin_id === vinId).map(x => ({ x, r: RP.find(r => r.id === x.repas_id) })).filter(o => o.r && !o.r.servi).sort((a, b) => a.r.date.localeCompare(b.r.date));
 const fmtJour = d => { const x = new Date(d + 'T12:00:00'); return x.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: x.getFullYear() !== ANNEE ? 'numeric' : undefined }); };
-let voirPasses = false;
+let rpVue = 'avenir', rpQ = '';
+// vins d'un repas : instantané figé à l'archivage, sinon réservations en cours
+function vinsDuRepas(r) {
+  if (r.archive) return r.archive;
+  return RV.filter(x => x.repas_id === r.id).map(x => { const v = V.find(y => y.id === x.vin_id);
+    return { moment: x.moment, vin_id: x.vin_id, quantite: x.quantite, couleur: v ? v.couleur : 'rouge',
+      libelle: v ? `${titre(v)}${v.millesime ? ' ' + v.millesime : ''}` : 'Vin supprimé', detail: v ? [v.nom ? v.domaine : null, v.appellation].filter(Boolean).join(' · ') : '' }; });
+}
 
 function renderRepas() {
   const el = $('vRepas'), t = today();
@@ -637,28 +644,44 @@ function renderRepas() {
   const enRetard = RP.filter(r => !r.servi && r.date < t).sort((a, b) => b.date.localeCompare(a.date));
   const passes = RP.filter(r => r.servi).sort((a, b) => b.date.localeCompare(a.date));
   const carte = r => {
-    const vins = RV.filter(x => x.repas_id === r.id), n = vins.reduce((s, x) => s + x.quantite, 0);
+    const vins = vinsDuRepas(r), n = vins.reduce((s, x) => s + x.quantite, 0);
     const parM = MOMENTS.map(([k, l]) => [l, vins.filter(x => x.moment === k)]).filter(m => m[1].length);
     return `<button class="repas${r.servi ? ' servi' : ''}" data-rp="${r.id}">
       <div class="rp-h"><h3>${esc(r.nom)}</h3><span class="tag${r.servi ? ' ok' : r.date < t ? ' amber' : ''}">${r.servi ? 'Servi' : r.date < t ? 'À clôturer' : btl(n)}</span></div>
       <div class="meta">${fmtJour(r.date)}${!r.servi && r.propositions && !n ? ' · suggestions prêtes' : ''}</div>
-      ${parM.length ? `<div class="rp-l">${parM.map(([l, xs]) => `<div><b>${l}</b> ${xs.map(x => { const v = V.find(y => y.id === x.vin_id); return v ? esc(titre(v)) + (v.millesime ? ' ' + v.millesime : '') + (x.quantite > 1 ? ` ×${x.quantite}` : '') : ''; }).join(', ')}</div>`).join('')}</div>` : '<div class="meta">Aucun vin pour l\'instant</div>'}
+      ${parM.length ? `<div class="rp-l">${parM.map(([l, xs]) => `<div><b>${l}</b> ${xs.map(x => esc(x.libelle) + (x.quantite > 1 ? ` ×${x.quantite}` : '')).join(', ')}</div>`).join('')}</div>` : `<div class="meta">${r.servi ? 'Aucun vin noté' : 'Aucun vin pour l\'instant'}</div>`}
+      ${r.servi && (r.note || r.avis) ? `<div class="rp-avis">${r.note ? stars(r.note) + ' ' : ''}${esc((r.avis || '').slice(0, 140))}${(r.avis || '').length > 140 ? '…' : ''}</div>` : ''}
     </button>`;
   };
-  el.innerHTML = `
+  const seg = `<div class="seg" role="group" aria-label="Repas" style="margin-bottom:14px">
+    <button type="button" data-rv="avenir" aria-pressed="${rpVue === 'avenir'}">À venir${avenir.length + enRetard.length ? ` (${avenir.length + enRetard.length})` : ''}</button>
+    <button type="button" data-rv="archives" aria-pressed="${rpVue === 'archives'}">Archives${passes.length ? ` (${passes.length})` : ''}</button></div>`;
+  if (rpVue === 'archives') {
+    const q = norm(rpQ);
+    const list = passes.filter(r => !q || norm([r.nom, r.notes, r.avis, ...Object.values(r.menu || {}), ...vinsDuRepas(r).map(x => x.libelle + ' ' + (x.detail || ''))].join(' ')).includes(q));
+    let html = '', an = '';
+    for (const r of list) { const y = r.date.slice(0, 4); if (y !== an) { an = y; html += `<h2 class="group">${y}</h2>`; } html += carte(r); }
+    el.innerHTML = seg + `<input class="search" id="rpQ" type="search" placeholder="Rechercher : invités, plat, vin…" value="${esc(rpQ)}" style="width:100%;margin-bottom:12px" aria-label="Rechercher dans les archives">
+      ${passes.length ? (list.length ? `<div class="list">${html}</div>` : '<div class="empty">Aucun repas archivé ne correspond.</div>')
+        : '<div class="empty">Aucun repas archivé.<br>Un repas est archivé quand vous le marquez comme servi.</div>'}`;
+    el.querySelectorAll('[data-rv]').forEach(b => b.onclick = () => { rpVue = b.dataset.rv; renderRepas(); });
+    const qi = $('rpQ'); qi.oninput = () => { rpQ = qi.value; const p = qi.selectionStart; renderRepas(); const n = $('rpQ'); n.focus(); n.setSelectionRange(p, p); };
+    el.querySelectorAll('[data-rp]').forEach(b => b.onclick = () => openRepas(b.dataset.rp));
+    return;
+  }
+  el.innerHTML = seg + `
     <div class="foot" style="justify-content:flex-start;margin:0 0 14px"><button class="btn pri" id="rpAdd">${I_PLUS}Nouveau repas</button></div>
     ${enRetard.length ? `<h2 class="group">À clôturer</h2><div class="list">${enRetard.map(carte).join('')}</div>` : ''}
     ${avenir.length ? `<h2 class="group">À venir</h2><div class="list">${avenir.map(carte).join('')}</div>`
       : !enRetard.length ? '<div class="empty">Aucun repas prévu.<br>Créez un repas (nom et date), puis réservez des vins pour l\'apéritif, l\'entrée, le plat, le fromage et le dessert.</div>' : ''}
-    ${passes.length ? `<p style="text-align:center;margin-top:18px"><button class="linkbtn" id="rpPasses">${voirPasses ? 'Masquer les repas passés' : `Repas passés (${passes.length})`}</button></p>
-      ${voirPasses ? `<div class="list">${passes.map(carte).join('')}</div>` : ''}` : ''}`;
+`;
   $('rpAdd').onclick = () => repasForm(null);
-  if ($('rpPasses')) $('rpPasses').onclick = () => { voirPasses = !voirPasses; renderRepas(); };
+  el.querySelectorAll('[data-rv]').forEach(b => b.onclick = () => { rpVue = b.dataset.rv; renderRepas(); });
   el.querySelectorAll('[data-rp]').forEach(b => b.onclick = () => openRepas(b.dataset.rp));
 }
 
 function repasForm(r, back) {
-  const neuf = !r; r = r || { date: today() };
+  const neuf = !r || r._copie; r = r || { date: today() };
   openSheet(neuf ? 'Nouveau repas' : 'Modifier le repas', `
     <form class="f" id="rpf">
       <label class="field"><span>Nom du repas</span><input id="rpNom" value="${esc(r.nom)}" required placeholder="Ex. Noël en famille, dîner avec les Muller…"></label>
@@ -685,7 +708,7 @@ function repasForm(r, back) {
     const q = neuf ? sb.from('cave_repas').insert({ ...row, foyer_id: foyer.id }) : sb.from('cave_repas').update(row).eq('id', r.id);
     const res = await q.select().single(); if (res.error) { $('rpErr').textContent = res.error.message; return; }
     RP = neuf ? [...RP, res.data] : RP.map(x => x.id === r.id ? res.data : x); saveCache(); render(); openRepas(res.data.id);
-    if (menuChange && Object.keys(menu).length) proposer(res.data);
+    if ((menuChange || r._copie) && Object.keys(menu).length) proposer(res.data);
   };
 }
 
@@ -696,7 +719,37 @@ async function oublierPropositions(id) {
   RP = RP.map(x => x.id === id ? { ...x, propositions: null } : x); saveCache(); render();
   const { error } = await sb.from('cave_repas').update({ propositions: null }).eq('id', id); if (error) console.warn(error);
 }
+function openArchive(r) {
+  const vins = vinsDuRepas(r), n = vins.reduce((s, x) => s + x.quantite, 0);
+  openSheet(r.nom, `
+    <p class="rp-date">${fmtJour(r.date)}${n ? ' · ' + btl(n) : ''} · <span class="tag ok">Archivé</span></p>
+    ${MOMENTS.map(([k, l]) => { const xs = vins.filter(x => x.moment === k), plat = (r.menu || {})[k];
+      if (!xs.length && !plat) return '';
+      return `<section class="mom"><div class="mom-h"><h4>${l}</h4></div>${plat ? `<p class="mom-p">${esc(plat)}</p>` : ''}
+        ${xs.map(x => `<div class="rv arch" style="--cc:var(--c-${x.couleur})"><div class="rv-t"${x.vin_id && V.some(v => v.id === x.vin_id) ? ` data-vin="${x.vin_id}"` : ''}><b>${esc(x.libelle)}</b>${x.detail ? `<span>${esc(x.detail)}</span>` : ''}</div><span class="rv-q">×${x.quantite}</span></div>`).join('') || '<p class="mom-v">Pas de vin</p>'}</section>`; }).join('')}
+    ${r.notes ? `<div class="notes"><b>Notes</b>${esc(r.notes)}</div>` : ''}
+    <h4>Notre avis</h4>
+    <div class="ratepick" id="avN">${[1, 2, 3, 4, 5].map(i => `<button type="button" data-n="${i}" class="${i <= (r.note || 0) ? 'on' : ''}" aria-label="${i} sur 5">★</button>`).join('')}</div>
+    <label class="field" style="margin-top:6px"><textarea id="avT" placeholder="Ce qui a plu, les accords réussis ou ratés, à refaire…">${esc(r.avis)}</textarea></label>
+    <div class="foot" style="margin-top:12px"><button class="btn" id="avAgain">${I_PLUS}Refaire ce repas</button><span class="spacer"></span><button class="btn pri" id="avSave">Enregistrer l'avis</button></div>
+  `, { kind: 'archive', actions: `<button class="iconbtn" id="rpEdit" aria-label="Modifier">${I_EDIT}</button>` });
+  let note = r.note || 0;
+  $('rpEdit').onclick = () => repasForm(r, () => openRepas(r.id));
+  $('sheet').querySelectorAll('[data-vin]').forEach(b => b.onclick = () => openVin(b.dataset.vin));
+  $('avN').querySelectorAll('button').forEach(b => b.onclick = () => { note = +b.dataset.n === note ? 0 : +b.dataset.n; $('avN').querySelectorAll('button').forEach(x => x.classList.toggle('on', +x.dataset.n <= note)); });
+  $('avSave').onclick = async () => {
+    const res = await sb.from('cave_repas').update({ note: note || null, avis: val('avT') }).eq('id', r.id).select().single(); if (res.error) return fail(res.error);
+    RP = RP.map(x => x.id === r.id ? res.data : x); saveCache(); render(); toast('Avis enregistré');
+  };
+  $('avAgain').onclick = () => repasForm({ nom: r.nom, date: today(), menu: { ...(r.menu || {}) }, notes: r.notes, _copie: true });
+}
+async function archiverRepas(r, sortir) {
+  const res = await sb.from('cave_repas').update({ servi: true, archive: vinsDuRepas(r), propositions: null }).eq('id', r.id).select().single();
+  if (res.error) throw res.error;
+  RP = RP.map(x => x.id === r.id ? res.data : x);
+}
 function openRepas(id) {
+  { const r0 = RP.find(x => x.id === id); if (r0 && r0.servi) { openRp = id; rpOuvert = null; return openArchive(r0); } }
   const keep = sheetKind === 'repas' && openRp === id && $('sheet').querySelector('.panel') ? $('sheet').querySelector('.panel').scrollTop : 0;
   openRp = id; const r = RP.find(x => x.id === id); if (!r) return closeSheet();
   rpOuvert = id;
@@ -732,7 +785,7 @@ function openRepas(id) {
             <button class="btn sm" data-hc="${k}|${i}">${AC.some(a => !a.fait && a.libelle === h.vin) ? '✓ Sur la liste' : 'À acheter'}</button></div>`).join('')}</div>`
           : pr && pr.a_acheter && !xs.length ? `<div class="note-acc"><b>Idéal à acheter :</b> ${esc(pr.a_acheter)}</div>` : ''}
         ${!xs.length && !props.length && !(pr && (pr.a_acheter || (pr.hors_cave || []).length)) ? `<p class="mom-v">${r.servi ? '—' : 'Aucun vin'}</p>` : ''}</section>`; }).join('')}
-    ${r.servi ? '' : `<div class="foot" style="margin-top:18px"><span class="spacer"></span><button class="btn pri" id="rpServir"${n ? '' : ' disabled'}>${I_GLASS}Repas servi : sortir les bouteilles</button></div>`}
+    ${r.servi ? '' : `<div class="foot" style="margin-top:18px">${r.date < today() ? '<button class="btn" id="rpArch">Archiver sans sortir les bouteilles</button>' : ''}<span class="spacer"></span><button class="btn pri" id="rpServir"${n ? '' : ' disabled'}>${I_GLASS}Repas servi : sortir les bouteilles</button></div>`}
   `, { kind: 'repas', actions: `<button class="iconbtn" id="rpEdit" aria-label="Modifier">${I_EDIT}</button>` });
   if (keep) $('sheet').querySelector('.panel').scrollTop = keep;
   $('rpEdit').onclick = () => repasForm(r, () => openRepas(id));
@@ -748,6 +801,10 @@ function openRepas(id) {
   S.querySelectorAll('[data-plus]').forEach(b => b.onclick = () => qte(b.dataset.plus, 1));
   S.querySelectorAll('[data-moins]').forEach(b => b.onclick = () => qte(b.dataset.moins, -1));
   if ($('rpServir')) $('rpServir').onclick = () => servirRepas(r);
+  if ($('rpArch')) $('rpArch').onclick = async () => {
+    if (!confirm('Archiver ce repas sans toucher au stock ? Les réservations sont libérées.')) return;
+    try { await archiverRepas(r, false); const d = await sb.from('cave_repas_vins').delete().eq('repas_id', r.id); if (d.error) throw d.error; RV = RV.filter(x => x.repas_id !== r.id); saveCache(); render(); openRepas(r.id); } catch (e) { fail(e); }
+  };
   if ($('rpProp')) $('rpProp').onclick = () => proposer(r);
   S.querySelectorAll('[data-hc]').forEach(b => b.onclick = async () => {
     const [k, i] = b.dataset.hc.split('|'), h = ((r.propositions.propositions || []).find(p => p.moment === k).hors_cave || [])[+i];
@@ -835,13 +892,12 @@ async function servirRepas(r) {
       M.unshift(m.data); V = V.map(y => y.id === vid ? u.data : y);
       if (u.data.quantite === 0 && !aRacheter(vid)) finis.push(u.data);
     }
-    const res = await sb.from('cave_repas').update({ servi: true }).eq('id', r.id).select().single(); if (res.error) throw res.error;
-    RP = RP.map(x => x.id === r.id ? res.data : x);
+    await archiverRepas(r, true);
     M.sort((a, b) => b.date.localeCompare(a.date) || b.created_at.localeCompare(a.created_at));
     saveCache(); render();
   } catch (e) { return fail(e); }
   // proposer de racheter les vins terminés, l'un après l'autre
-  const suite = () => { const v = finis.shift(); if (v) rachatForm(v, suite, true); else { openRepas(r.id); toast('Bon appétit ! Les bouteilles sont sorties de la cave.'); } };
+  const suite = () => { const v = finis.shift(); if (v) rachatForm(v, suite, true); else { openRepas(r.id); toast('Bon appétit ! Le repas est archivé, vous pourrez y noter votre avis.'); } };
   suite();
 }
 
