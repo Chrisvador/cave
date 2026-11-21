@@ -29,7 +29,7 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   const key = Deno.env.get("ANTHROPIC_API_KEY");
   if (!key) return json({ ia: false });
-  let body: { image?: string; ping?: boolean; accords?: Accords; facture?: string; plats?: Vin } = {};
+  let body: { image?: string; ping?: boolean; accords?: Accords; facture?: string; plats?: Vin; repas?: Repas } = {};
   try { body = await req.json(); } catch { return json({ error: "Requête invalide" }, 400); }
   if (body.ping) {
     // Vérifie la clé, le crédit et le modèle avec un tout petit appel
@@ -45,6 +45,7 @@ Deno.serve(async (req) => {
   if (body.accords) return accords(key, body.accords);
   if (body.facture) return facture(key, body.facture);
   if (body.plats) return plats(key, body.plats);
+  if (body.repas) return repas(key, body.repas);
   let image = body.image || "";
   image = image.replace(/^data:image\/\w+;base64,/, "");
   if (!image || image.length > 5_000_000) return json({ error: "Image manquante ou trop lourde" }, 400);
@@ -240,5 +241,51 @@ async function plats(key: string, vin: Vin) {
 ${JSON.stringify(vin)}
 Propose 4 plats variés (du quotidien au plus festif) qui s'accordent vraiment bien avec ce vin, plutôt de saison (nous sommes en ${new Date().toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}).
 Réponds en français, de façon concise, via l'outil plats.`, tool, 1500, Deno.env.get("ANTHROPIC_MODEL_ACCORDS"));
+  return json(out);
+}
+
+// ---------- Repas : un vin par moment du repas, choisi dans la cave ----------
+type Repas = { nom?: string; plats: Record<string, string>; vins: Vin[]; annee?: number };
+async function repas(key: string, r: Repas) {
+  const moments = Object.entries(r.plats || {}).filter(([, t]) => String(t || "").trim()).map(([m, t]) => [m, String(t).slice(0, 1500)]);
+  if (!moments.length) return json({ error: "Indiquez au moins un plat" }, 400);
+  const vins = Array.isArray(r.vins) ? r.vins.slice(0, 600) : [];
+  const tool = {
+    name: "repas",
+    description: "Propose les vins de la cave pour chaque moment du repas.",
+    input_schema: {
+      type: "object",
+      properties: {
+        propositions: {
+          type: "array",
+          items: { type: "object", properties: {
+            moment: { type: "string", enum: ["aperitif", "entree", "plat", "fromage", "dessert"] },
+            vins: { type: "array", maxItems: 3, items: { type: "object", properties: {
+              id: { type: "string", description: "id exact d'un vin de la cave" },
+              raison: { type: "string", description: "Pourquoi, en une phrase" },
+              score: { type: "integer", minimum: 1, maximum: 5 },
+            }, required: ["id", "raison", "score"] } },
+            a_acheter: { type: ["string", "null"], description: "Si rien dans la cave ne convient bien : le style de vin idéal, sinon null" },
+          }, required: ["moment", "vins"] },
+        },
+        conseil: { type: ["string", "null"], description: "Conseil général court sur l'enchaînement des vins ou le service" },
+      },
+      required: ["propositions"],
+    },
+  };
+  const prompt = `Tu es sommelier. Je prépare un repas${r.nom ? ` (« ${r.nom} »)` : ""} avec ce menu :
+${moments.map(([m, t]) => `- ${m} : ${t}`).join("\n")}
+
+Vins disponibles dans ma cave (JSON ; "dispo" = bouteilles encore libres ; garde_debut/garde_fin = période idéale, nous sommes en ${r.annee || new Date().getFullYear()}) :
+${vins.map((v) => JSON.stringify(v)).join("\n") || "(cave vide)"}
+
+Pour CHAQUE moment du menu, propose 1 à 3 vins de CETTE cave, le meilleur en premier, avec un score de 1 à 5 (n'inclus que des accords pertinents, score ≥ 3).
+Pense à la progression du repas (du plus léger au plus puissant, blancs avant rouges, effervescent bienvenu à l'apéritif) et évite de proposer le même vin à deux moments sauf si c'est vraiment le meilleur choix.
+Ne propose pas un vin dont "dispo" vaut 0. Si rien ne convient bien pour un moment, renseigne a_acheter.
+Réponds en français, de façon concise, via l'outil repas.`;
+  const out = await claudeOutil(key, prompt, tool, 2000, Deno.env.get("ANTHROPIC_MODEL_ACCORDS")) as { error?: string; propositions?: { vins?: { id: string }[] }[] };
+  if (out.error) return json(out);
+  const ids = new Set(vins.map((v) => v.id));
+  (out.propositions || []).forEach((p) => { p.vins = (p.vins || []).filter((v) => ids.has(v.id)); });
   return json(out);
 }

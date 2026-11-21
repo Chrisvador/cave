@@ -641,7 +641,7 @@ function renderRepas() {
     const parM = MOMENTS.map(([k, l]) => [l, vins.filter(x => x.moment === k)]).filter(m => m[1].length);
     return `<button class="repas${r.servi ? ' servi' : ''}" data-rp="${r.id}">
       <div class="rp-h"><h3>${esc(r.nom)}</h3><span class="tag${r.servi ? ' ok' : r.date < t ? ' amber' : ''}">${r.servi ? 'Servi' : r.date < t ? 'À clôturer' : btl(n)}</span></div>
-      <div class="meta">${fmtJour(r.date)}</div>
+      <div class="meta">${fmtJour(r.date)}${!r.servi && r.propositions && !n ? ' · suggestions prêtes' : ''}</div>
       ${parM.length ? `<div class="rp-l">${parM.map(([l, xs]) => `<div><b>${l}</b> ${xs.map(x => { const v = V.find(y => y.id === x.vin_id); return v ? esc(titre(v)) + (v.millesime ? ' ' + v.millesime : '') + (x.quantite > 1 ? ` ×${x.quantite}` : '') : ''; }).join(', ')}</div>`).join('')}</div>` : '<div class="meta">Aucun vin pour l\'instant</div>'}
     </button>`;
   };
@@ -663,7 +663,9 @@ function repasForm(r, back) {
     <form class="f" id="rpf">
       <label class="field"><span>Nom du repas</span><input id="rpNom" value="${esc(r.nom)}" required placeholder="Ex. Noël en famille, dîner avec les Muller…"></label>
       <label class="field"><span>Date</span><input id="rpDate" type="date" value="${esc(r.date)}" required></label>
-      <label class="field"><span>Notes</span><textarea id="rpNotes" placeholder="Menu, invités…">${esc(r.notes)}</textarea></label>
+      <div class="field"><span>Le menu</span><small>Décrivez les plats : des vins de la cave vous seront proposés pour chacun.</small></div>
+      ${MOMENTS.map(([k, l]) => `<label class="field mn"><span>${l}</span><input id="mn_${k}" value="${esc((r.menu || {})[k])}" placeholder="${{ aperitif: 'Ex. gougères, toasts de saumon', entree: 'Ex. foie gras, chutney de figues', plat: 'Ex. chapon aux morilles', fromage: 'Ex. munster, comté', dessert: 'Ex. bûche chocolat-poire' }[k]}" autocomplete="off"></label>`).join('')}
+      <label class="field"><span>Notes</span><textarea id="rpNotes" placeholder="Invités, remarques…">${esc(r.notes)}</textarea></label>
       <p class="err" id="rpErr"></p>
       <div class="foot">${neuf ? '' : `<button class="btn danger" type="button" id="rpDel">${I_DEL}Supprimer</button><span class="spacer"></span>`}
         <button class="btn" type="button" id="rpNo">Annuler</button><button class="btn pri" type="submit">${neuf ? 'Créer' : 'Enregistrer'}</button></div>
@@ -676,16 +678,20 @@ function repasForm(r, back) {
   };
   $('rpf').onsubmit = async e => {
     e.preventDefault();
-    const row = { nom: val('rpNom'), date: $('rpDate').value, notes: val('rpNotes') };
+    const menu = {}; MOMENTS.forEach(([k]) => { const t = val('mn_' + k); if (t) menu[k] = t; });
+    const row = { nom: val('rpNom'), date: $('rpDate').value, notes: val('rpNotes'), menu };
+    const menuChange = JSON.stringify(menu) !== JSON.stringify(r.menu || {});
     if (!row.nom || !row.date) return;
     const q = neuf ? sb.from('cave_repas').insert({ ...row, foyer_id: foyer.id }) : sb.from('cave_repas').update(row).eq('id', r.id);
     const res = await q.select().single(); if (res.error) { $('rpErr').textContent = res.error.message; return; }
     RP = neuf ? [...RP, res.data] : RP.map(x => x.id === r.id ? res.data : x); saveCache(); render(); openRepas(res.data.id);
+    if (menuChange && Object.keys(menu).length) proposer(res.data);
   };
 }
 
 let openRp = null;
 function openRepas(id) {
+  const keep = sheetKind === 'repas' && openRp === id && $('sheet').querySelector('.panel') ? $('sheet').querySelector('.panel').scrollTop : 0;
   openRp = id; const r = RP.find(x => x.id === id); if (!r) return closeSheet();
   const vins = RV.filter(x => x.repas_id === id), n = vins.reduce((s, x) => s + x.quantite, 0);
   const ligne = x => {
@@ -701,11 +707,23 @@ function openRepas(id) {
   openSheet(r.nom, `
     <p class="rp-date">${fmtJour(r.date)}${n ? ' · ' + btl(n) : ''}${r.servi ? ' · <span class="tag ok">Servi</span>' : ''}</p>
     ${r.notes ? `<div class="notes">${esc(r.notes)}</div>` : ''}
-    ${MOMENTS.map(([k, l]) => { const xs = vins.filter(x => x.moment === k);
-      return `<section class="mom"><div class="mom-h"><h4>${l}</h4>${r.servi ? '' : `<button class="btn" data-add="${k}">${I_PLUS}Vin</button>`}</div>
-        ${xs.length ? xs.map(ligne).join('') : `<p class="mom-v">${r.servi ? '—' : 'Aucun vin'}</p>`}</section>`; }).join('')}
+    ${r.servi ? '' : Object.keys(r.menu || {}).length ? `<div class="prop-bar"><button class="btn pri" id="rpProp"${propBusy === r.id ? ' disabled' : ''}>${I_GLASS}${propBusy === r.id ? 'Le sommelier réfléchit…' : r.propositions ? 'Nouvelles propositions' : 'Proposer des vins'}</button>
+      ${r.propositions && r.propositions.conseil ? `<span class="prop-c">${esc(r.propositions.conseil)}</span>` : ''}</div>`
+      : `<div class="note-acc">Indiquez les plats du menu (crayon en haut) pour recevoir des propositions de vins de votre cave.</div>`}
+    ${propErr[r.id] ? `<p class="err">${esc(propErr[r.id])}</p>` : ''}
+    ${MOMENTS.map(([k, l]) => { const xs = vins.filter(x => x.moment === k), plat = (r.menu || {})[k];
+      const pr = !r.servi && r.propositions ? (r.propositions.propositions || []).find(p => p.moment === k) : null;
+      const props = pr ? (pr.vins || []).map(p => ({ ...p, v: V.find(v => v.id === p.id) })).filter(p => p.v && !xs.some(x => x.vin_id === p.id)) : [];
+      if (r.servi && !xs.length) return '';
+      return `<section class="mom"><div class="mom-h"><h4>${l}</h4>${r.servi ? '' : `<button class="btn" data-add="${k}">${I_PLUS}${xs.length || props.length ? 'Autre vin' : 'Vin'}</button>`}</div>
+        ${plat ? `<p class="mom-p">${esc(plat)}</p>` : ''}
+        ${xs.map(ligne).join('')}
+        ${props.length ? `<div class="props"><div class="props-h">${xs.length ? 'Autres suggestions' : 'Suggestions'}</div>${props.map(p => propLigne(p, k)).join('')}</div>` : ''}
+        ${pr && pr.a_acheter && !xs.length ? `<div class="note-acc"><b>Idéal à acheter :</b> ${esc(pr.a_acheter)}</div>` : ''}
+        ${!xs.length && !props.length && !(pr && pr.a_acheter) ? `<p class="mom-v">${r.servi ? '—' : 'Aucun vin'}</p>` : ''}</section>`; }).join('')}
     ${r.servi ? '' : `<div class="foot" style="margin-top:18px"><span class="spacer"></span><button class="btn pri" id="rpServir"${n ? '' : ' disabled'}>${I_GLASS}Repas servi : sortir les bouteilles</button></div>`}
   `, { kind: 'repas', actions: `<button class="iconbtn" id="rpEdit" aria-label="Modifier">${I_EDIT}</button>` });
+  if (keep) $('sheet').querySelector('.panel').scrollTop = keep;
   $('rpEdit').onclick = () => repasForm(r, () => openRepas(id));
   const S = $('sheet');
   S.querySelectorAll('[data-vin]').forEach(b => b.onclick = () => openVin(b.dataset.vin));
@@ -719,8 +737,40 @@ function openRepas(id) {
   S.querySelectorAll('[data-plus]').forEach(b => b.onclick = () => qte(b.dataset.plus, 1));
   S.querySelectorAll('[data-moins]').forEach(b => b.onclick = () => qte(b.dataset.moins, -1));
   if ($('rpServir')) $('rpServir').onclick = () => servirRepas(r);
+  if ($('rpProp')) $('rpProp').onclick = () => proposer(r);
+  S.querySelectorAll('[data-ok-v]').forEach(b => b.onclick = () => ajouterVin(r, b.dataset.okM, V.find(v => v.id === b.dataset.okV)));
 }
 
+function propLigne(p, k) {
+  const v = p.v, u = url(thumb(v.photo)), d = dispo(v);
+  return `<div class="rv prop" style="--cc:var(--c-${v.couleur})">
+    <div class="rv-ph" data-vin="${v.id}">${u ? `<img src="${esc(u)}" alt="">` : '<i class="pastille p-' + v.couleur + '"></i>'}</div>
+    <div class="rv-t" data-vin="${v.id}"><b>${esc(titre(v))}${v.millesime ? ' ' + v.millesime : ''}</b>
+      <span class="why">${stars(Math.max(1, Math.min(5, p.score || 3)))} ${esc(p.raison)}</span>${d < 1 ? '<span class="warn">Plus de bouteille libre</span>' : ''}</div>
+    <button class="btn pri sm" data-ok-v="${v.id}" data-ok-m="${k}">Réserver</button>
+  </div>`;
+}
+let propBusy = null; const propErr = {};
+async function proposer(r) {
+  if (propBusy) return;
+  propBusy = r.id; delete propErr[r.id]; if (openRp === r.id && sheetKind === 'repas') openRepas(r.id);
+  const pris = vid => RV.filter(x => x.repas_id === r.id && x.vin_id === vid).reduce((s, x) => s + x.quantite, 0);
+  const vins = V.filter(v => v.quantite > 0).map(v => {
+    const o = { id: v.id, couleur: v.couleur, domaine: v.domaine, cuvee: v.nom, appellation: v.appellation, region: v.region, millesime: v.millesime,
+      cepages: v.cepages, dispo: dispo(v) + pris(v.id), garde_debut: v.garde_debut, garde_fin: v.garde_fin, note: v.note, commentaire: v.commentaire };
+    for (const k in o) if (o[k] == null || o[k] === '') delete o[k];
+    return o;
+  });
+  try {
+    const { data, error } = await sb.functions.invoke('analyse-vin', { body: { repas: { nom: r.nom, plats: r.menu || {}, vins, annee: ANNEE } } });
+    if (error) throw error;
+    if (data && data.ia === false) throw new Error('La clé API Claude n\'est pas configurée (voir Réglages).');
+    if (!data || data.error) throw new Error((data && data.error) || 'Réponse vide');
+    const res = await sb.from('cave_repas').update({ propositions: data }).eq('id', r.id).select().single(); if (res.error) throw res.error;
+    RP = RP.map(x => x.id === r.id ? res.data : x); saveCache();
+  } catch (e) { propErr[r.id] = 'Impossible de proposer des vins : ' + (e.message || e); }
+  propBusy = null; render(); if (openRp === r.id && sheetKind === 'repas') openRepas(r.id);
+}
 function choisirVin(r, moment) {
   let q = '';
   const draw = () => {
