@@ -714,12 +714,13 @@ function openRepas(id) {
   openSheet(r.nom, `
     <p class="rp-date">${fmtJour(r.date)}${n ? ' · ' + btl(n) : ''}${r.servi ? ' · <span class="tag ok">Servi</span>' : ''}</p>
     ${r.notes ? `<div class="notes">${esc(r.notes)}</div>` : ''}
-    ${r.servi ? '' : Object.keys(r.menu || {}).length ? `<div class="prop-bar"><button class="btn pri" id="rpProp"${propBusy === r.id ? ' disabled' : ''}>${I_GLASS}${propBusy === r.id ? 'Le sommelier réfléchit…' : r.propositions ? 'Nouvelles propositions' : 'Proposer des vins'}</button>
+    ${r.servi ? '' : true ? `<div class="prop-bar"><button class="btn pri" id="rpProp"${propBusy === r.id ? ' disabled' : ''}>${I_GLASS}${propBusy === r.id ? 'Le sommelier réfléchit…' : r.propositions ? 'Nouvelles propositions' : 'Proposer des vins'}</button>
       ${r.propositions && r.propositions.conseil ? `<span class="prop-c">${esc(r.propositions.conseil)}</span>` : ''}</div>`
-      : `<div class="note-acc">Indiquez les plats du menu (crayon en haut) pour recevoir des propositions de vins de votre cave.</div>`}
+      : ''}
+    ${!r.servi && !Object.keys(r.menu || {}).filter(k => k !== 'aperitif').length ? `<div class="note-acc">Indiquez les plats du menu (crayon en haut) pour recevoir des propositions pour l'entrée, le plat, le fromage et le dessert.</div>` : ''}
     ${propErr[r.id] ? `<p class="err">${esc(propErr[r.id])}</p>` : ''}
     ${MOMENTS.map(([k, l]) => { const xs = vins.filter(x => x.moment === k), plat = (r.menu || {})[k];
-      const pr = !r.servi && r.propositions ? (r.propositions.propositions || []).find(p => p.moment === k) : null;
+      const pr = !r.servi && r.propositions && (k === 'aperitif' || plat) ? (r.propositions.propositions || []).find(p => p.moment === k) : null;
       const props = pr ? (pr.vins || []).map(p => ({ ...p, v: V.find(v => v.id === p.id) })).filter(p => p.v && !xs.some(x => x.vin_id === p.id)) : [];
       if (r.servi && !xs.length) return '';
       return `<section class="mom"><div class="mom-h"><h4>${l}</h4>${r.servi ? '' : `<button class="btn" data-add="${k}">${I_PLUS}${xs.length || props.length ? 'Autre vin' : 'Vin'}</button>`}</div>
@@ -769,7 +770,9 @@ async function proposer(r) {
     return o;
   });
   try {
-    const { data, error } = await sb.functions.invoke('analyse-vin', { body: { repas: { nom: r.nom, plats: r.menu || {}, vins, annee: ANNEE } } });
+    const plats = { aperitif: (r.menu || {}).aperitif || 'apéritif (rien de précisé)' };
+    MOMENTS.forEach(([k]) => { if (k !== 'aperitif' && (r.menu || {})[k]) plats[k] = r.menu[k]; });
+    const { data, error } = await sb.functions.invoke('analyse-vin', { body: { repas: { nom: r.nom, plats, vins, annee: ANNEE } } });
     if (error) throw error;
     if (data && data.ia === false) throw new Error('La clé API Claude n\'est pas configurée (voir Réglages).');
     if (!data || data.error) throw new Error((data && data.error) || 'Réponse vide');

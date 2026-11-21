@@ -279,13 +279,15 @@ ${moments.map(([m, t]) => `- ${m} : ${t}`).join("\n")}
 Vins disponibles dans ma cave (JSON ; "dispo" = bouteilles encore libres ; garde_debut/garde_fin = période idéale, nous sommes en ${r.annee || new Date().getFullYear()}) :
 ${vins.map((v) => JSON.stringify(v)).join("\n") || "(cave vide)"}
 
-Pour CHAQUE moment du menu, propose 1 à 3 vins de CETTE cave, le meilleur en premier, avec un score de 1 à 5 (n'inclus que des accords pertinents, score ≥ 3).
+Ne propose des vins QUE pour les moments listés ci-dessus (n'en ajoute aucun autre, même si le repas en comporte sans doute). Pour chacun, propose 1 à 3 vins de CETTE cave, le meilleur en premier, avec un score de 1 à 5 (n'inclus que des accords pertinents, score ≥ 3).
 Pense à la progression du repas (du plus léger au plus puissant, blancs avant rouges, effervescent bienvenu à l'apéritif) et évite de proposer le même vin à deux moments sauf si c'est vraiment le meilleur choix.
 Ne propose pas un vin dont "dispo" vaut 0. Si rien ne convient bien pour un moment, renseigne a_acheter.
 Réponds en français, de façon concise, via l'outil repas.`;
-  const out = await claudeOutil(key, prompt, tool, 2000, Deno.env.get("ANTHROPIC_MODEL_ACCORDS")) as { error?: string; propositions?: { vins?: { id: string }[] }[] };
+  const out = await claudeOutil(key, prompt, tool, 2000, Deno.env.get("ANTHROPIC_MODEL_ACCORDS")) as { error?: string; propositions?: { moment?: string; vins?: { id: string }[] }[] };
   if (out.error) return json(out);
   const ids = new Set(vins.map((v) => v.id));
-  (out.propositions || []).forEach((p) => { p.vins = (p.vins || []).filter((v) => ids.has(v.id)); });
+  const listes = new Set(moments.map(([m]) => m));
+  out.propositions = (out.propositions || []).filter((p: { moment?: string }) => listes.has(String(p.moment)));
+  out.propositions.forEach((p) => { p.vins = (p.vins || []).filter((v) => ids.has(v.id)); });
   return json(out);
 }
